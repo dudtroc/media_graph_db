@@ -1,0 +1,154 @@
+{
+    "Scene Number": "Kingdom_EP01|2220-3134",
+    "scene_graph": {
+        "meta": {
+            "scene_place": "an_empty_courtyard_of_a_traditional_korean_palace",
+            "scene_time": "night",
+            "scene_atmosphere": "somber_and_clandestine"
+        },
+        "objects": [
+            {
+                "object_id": 1001,
+                "super_type": "person",
+                "type of": "royal_official",
+                "label": "Royal Official",
+                "attributes": {
+                    "emotion": "serious"
+                }
+            },
+            {
+                "object_id": 1002,
+                "super_type": "person",
+                "type of": "attendant",
+                "label": "Attendant"
+            },
+            {
+                "object_id": 1003,
+                "super_type": "clothing",
+                "type of": "robe",
+                "label": "dark traditional Korean robes",
+                "attributes": {
+                    "color of": "dark"
+                }
+            },
+            {
+                "object_id": 1004,
+                "super_type": "clothing",
+                "type of": "hat",
+                "label": "tall black hat (gat)",
+                "attributes": {
+                    "color of": "black"
+                }
+            },
+            {
+                "object_id": 1005,
+                "super_type": "clothing",
+                "type of": "vest",
+                "label": "light-colored vest",
+                "attributes": {
+                    "color of": "light"
+                }
+            },
+            {
+                "object_id": 1006,
+                "super_type": "clothing",
+                "type of": "robe",
+                "label": "dark traditional robes",
+                "attributes": {
+                    "color of": "dark"
+                }
+            },
+            {
+                "object_id": 1007,
+                "super_type": "building",
+                "type of": "palace_building",
+                "label": "large, lit building"
+            }
+        ],
+        "events": [
+            {
+                "event_id": 3001,
+                "subject": 1002,
+                "verb": "walk",
+                "object": 1001
+            },
+            {
+                "event_id": 3002,
+                "subject": 1001,
+                "verb": "wait",
+                "object": 1007
+            },
+            {
+                "event_id": 3003,
+                "subject": 1002,
+                "verb": "approach",
+                "object": 1001
+            },
+            {
+                "event_id": 3004,
+                "subject": 1002,
+                "verb": "bow",
+                "object": 1001
+            },
+            {
+                "event_id": 3005,
+                "subject": 1001,
+                "verb": "speak",
+                "object": 1002,
+                "attribute": "serious expression"
+            }
+        ],
+        "spatial": [
+            {
+                "spatial_id": 11001,
+                "subject": 1001,
+                "predicate": "wearing",
+                "object": 1003
+            },
+            {
+                "spatial_id": 11002,
+                "subject": 1001,
+                "predicate": "wearing",
+                "object": 1004
+            },
+            {
+                "spatial_id": 11003,
+                "subject": 1002,
+                "predicate": "wearing",
+                "object": 1005
+            },
+            {
+                "spatial_id": 11004,
+                "subject": 1002,
+                "predicate": "wearing",
+                "object": 1006
+            },
+            {
+                "spatial_id": 11005,
+                "subject": 1002,
+                "predicate": "wearing",
+                "object": 1004
+            }
+        ],
+        "temporal": [
+            {
+                "temporal_id": 21000,
+                "subject": 3001,
+                "predicate": "before",
+                "object": 3003
+            },
+            {
+                "temporal_id": 21001,
+                "subject": 3003,
+                "predicate": "before",
+                "object": 3004
+            },
+            {
+                "temporal_id": 21002,
+                "subject": 3004,
+                "predicate": "before",
+                "object": 3005
+            }
+        ]
+    }
+}
