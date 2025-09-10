@@ -6,18 +6,63 @@
 
 ```
 client/
-├── scene_graph_api_uploader.py  # 장면그래프 데이터 업로드
-├── check_stored_data.py         # 저장된 데이터 확인
-├── delete_video_data.py         # 비디오 데이터 삭제
-├── data/                        # 테스트 데이터
-│   ├── *.json                  # 장면그래프 JSON 파일
-│   └── *.pt                    # 임베딩 PT 파일
-├── requirements.txt            # 클라이언트 의존성
-├── Dockerfile                  # 클라이언트 Docker 이미지
-└── README.md                   # 이 파일
+├── scene_graph_client.py       # 통합 클라이언트 (NEW)
+├── test_integrated_client.py   # 통합 클라이언트 테스트
+├── util/                       # 유틸리티 모듈들
+│   ├── __init__.py            # 모듈 초기화
+│   ├── scene_graph_api_uploader.py # 장면그래프 데이터 업로드
+│   ├── check_stored_data.py   # 저장된 데이터 확인
+│   └── delete_video_data.py   # 비디오 데이터 삭제
+├── data/                       # 테스트 데이터
+│   ├── *.json                 # 장면그래프 JSON 파일
+│   └── *.pt                   # 임베딩 PT 파일
+├── requirements.txt           # 클라이언트 의존성
+├── Dockerfile                 # 클라이언트 Docker 이미지
+├── README.md                  # 이 파일
+└── CLIENT_USAGE.md           # 통합 클라이언트 사용 가이드
 ```
 
 ## 🛠️ 클라이언트 도구들
+
+### 0. 🎭 scene_graph_client.py (통합 클라이언트) ⭐ **NEW**
+**모든 DB API 접근 기능을 통합한 클라이언트**
+
+#### 기능
+- 모든 기존 클라이언트 기능 통합
+- 비디오, 장면, 노드 관리
+- 장면그래프 업로드 및 검색
+- 데이터 내보내기/가져오기
+- 대화형 모드 지원
+
+#### 사용법
+```bash
+# 대화형 모드
+python scene_graph_client.py interactive
+
+# 개별 명령어
+python scene_graph_client.py check        # 데이터 확인
+python scene_graph_client.py list         # 비디오 목록
+python scene_graph_client.py summary      # 데이터 요약
+
+# Python 코드로 사용
+python -c "
+from scene_graph_client import SceneGraphClient
+client = SceneGraphClient()
+client.check_all_data()
+"
+```
+
+#### 주요 메서드
+- `health_check()` - API 서버 연결 확인
+- `get_videos()` - 비디오 목록 조회
+- `upload_scene_graph()` - 장면그래프 업로드
+- `vector_search()` - 벡터 검색
+- `export_scene_data()` - 데이터 내보내기
+
+#### 상세 사용법
+[CLIENT_USAGE.md](./CLIENT_USAGE.md) 참조
+
+---
 
 ### 1. 📤 scene_graph_api_uploader.py
 **장면그래프 데이터를 API 서버에 업로드하는 도구**
@@ -35,7 +80,7 @@ python scene_graph_api_uploader.py
 
 # 특정 파일 업로드
 python -c "
-from scene_graph_api_uploader import SceneGraphAPIUploader
+from util.scene_graph_api_uploader import SceneGraphAPIUploader
 uploader = SceneGraphAPIUploader()
 uploader.upload_scene_graph('data/your_file.json')
 "
@@ -70,7 +115,7 @@ python check_stored_data.py
 
 # Python 코드로 사용
 python -c "
-from check_stored_data import SceneGraphDataChecker
+from util.check_stored_data import SceneGraphDataChecker
 checker = SceneGraphDataChecker()
 checker.check_all_data()
 "
@@ -139,22 +184,36 @@ python delete_video_data.py 1001 --yes
 
 ## 🚀 빠른 시작
 
-### 1. Docker 환경에서 실행
+### 1. 통합 클라이언트 사용 (권장)
+```bash
+# 클라이언트 컨테이너 접속
+docker exec -it scene_graph_client_test bash
+
+# 통합 클라이언트 대화형 모드
+python scene_graph_client.py interactive
+
+# 또는 개별 명령어
+python scene_graph_client.py check        # 데이터 확인
+python scene_graph_client.py list         # 비디오 목록
+python scene_graph_client.py summary      # 데이터 요약
+```
+
+### 2. Docker 환경에서 개별 도구 사용
 ```bash
 # 클라이언트 컨테이너 접속
 docker exec -it scene_graph_client_test bash
 
 # 데이터 업로드
-python scene_graph_api_uploader.py
+python util/scene_graph_api_uploader.py
 
 # 데이터 확인
-python check_stored_data.py
+python util/check_stored_data.py
 
 # 데이터 삭제
-python delete_video_data.py
+python util/delete_video_data.py
 ```
 
-### 2. 로컬 환경에서 실행
+### 3. 로컬 환경에서 실행
 ```bash
 # 의존성 설치
 pip install -r requirements.txt
@@ -162,10 +221,13 @@ pip install -r requirements.txt
 # 환경 변수 설정
 export API_URL="http://localhost:8000"
 
-# 도구 실행
-python scene_graph_api_uploader.py
-python check_stored_data.py
-python delete_video_data.py
+# 통합 클라이언트 사용
+python scene_graph_client.py interactive
+
+# 또는 개별 도구 실행
+python util/scene_graph_api_uploader.py
+python util/check_stored_data.py
+python util/delete_video_data.py
 ```
 
 ## ⚙️ 환경 설정

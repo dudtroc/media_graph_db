@@ -24,7 +24,35 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # PostgREST - 자동 REST API 생성
+  # FastAPI 서버
+  api_server:
+    build: ./server
+    container_name: scene_graph_api_server
+    environment:
+      - DB_HOST=postgres
+      - DB_NAME=scene_graph_db
+      - DB_USER=postgres
+      - DB_PASSWORD=password
+      - DB_PORT=5432
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    networks:
+      - scene_graph_network
+    volumes:
+      - ./server:/app
+    command: ["python", "start_server.py"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # PostgREST - 자동 REST API 생성 (선택사항)
   postgrest:
     image: postgrest/postgrest
     container_name: scene_graph_postgrest
@@ -46,32 +74,7 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # FastAPI 서버
-  api_server:
-    build: ./server
-    container_name: scene_graph_api_server
-    ports:
-      - "8000:8000"
-    environment:
-      - DB_HOST=postgres
-      - DB_NAME=scene_graph_db
-      - DB_USER=postgres
-      - DB_PASSWORD=password
-      - DB_PORT=5432
-    depends_on:
-      - postgres
-    restart: unless-stopped
-    networks:
-      - scene_graph_network
-    volumes:
-      - ./server:/app
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  # 클라이언트 테스트 컨테이너 (수동 실행용)
+  # 클라이언트 테스트 컨테이너
   client_test:
     build: ./client
     container_name: scene_graph_client_test
@@ -85,16 +88,16 @@ services:
       - DB_PORT=5432
       - DOCKER_CONTAINER=true
     depends_on:
-      - api_server
       - postgres
+      - api_server
     networks:
       - scene_graph_network
     volumes:
       - ./client:/app
+      - ./server:/app/server
       - ./test:/app/test
-    command: ["python", "start_client.py"]
-    # 백그라운드에서 계속 실행
-    restart: unless-stopped
+    # 클라이언트는 수동으로 실행 (테스트용)
+    command: ["tail", "-f", "/dev/null"]
     # 로그 크기 제한
     logging:
       driver: "json-file"

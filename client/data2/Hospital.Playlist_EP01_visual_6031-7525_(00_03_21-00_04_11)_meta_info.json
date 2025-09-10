@@ -1,0 +1,316 @@
+{
+    "Scene Number": "Hospital.Playlist_EP01|6031-7525",
+    "scene_graph": {
+        "meta": {
+            "scene_place": "living_room",
+            "scene_time": "night",
+            "scene_atmosphere": "tense_and_urgent"
+        },
+        "objects": [
+            {
+                "object_id": 1001,
+                "super_type": "person",
+                "type of": "female_doctor",
+                "label": "A woman with short brown hair and round glasses",
+                "attributes": {
+                    "emotion": "concerned"
+                }
+            },
+            {
+                "object_id": 1002,
+                "super_type": "clothing",
+                "type of": "turtleneck",
+                "label": "light blue turtleneck"
+            },
+            {
+                "object_id": 1003,
+                "super_type": "clothing",
+                "type of": "blazer",
+                "label": "dark blazer"
+            },
+            {
+                "object_id": 1004,
+                "super_type": "clothing",
+                "type of": "skirt",
+                "label": "dark skirt"
+            },
+            {
+                "object_id": 1005,
+                "super_type": "person",
+                "type of": "injured_man",
+                "label": "A man with short, dark spiky hair",
+                "attributes": {
+                    "emotion": "unconscious"
+                }
+            },
+            {
+                "object_id": 1006,
+                "super_type": "clothing",
+                "type of": "t-shirt",
+                "label": "black t-shirt"
+            },
+            {
+                "object_id": 1007,
+                "super_type": "person",
+                "type of": "paramedic",
+                "label": "Paramedic 1"
+            },
+            {
+                "object_id": 1008,
+                "super_type": "clothing",
+                "type of": "uniform",
+                "label": "orange uniform"
+            },
+            {
+                "object_id": 1009,
+                "super_type": "accessory",
+                "type of": "helmet",
+                "label": "white helmet with a headlamp"
+            },
+            {
+                "object_id": 1010,
+                "super_type": "accessory",
+                "type of": "mask",
+                "label": "blue surgical mask"
+            },
+            {
+                "object_id": 1011,
+                "super_type": "person",
+                "type of": "paramedic",
+                "label": "Paramedic 2"
+            },
+            {
+                "object_id": 1012,
+                "super_type": "furniture",
+                "type of": "stepladder",
+                "label": "stepladder"
+            },
+            {
+                "object_id": 1013,
+                "super_type": "room",
+                "type of": "floor",
+                "label": "patterned tile floor"
+            },
+            {
+                "object_id": 1014,
+                "super_type": "device",
+                "type of": "phone"
+            }
+        ],
+        "events": [
+            {
+                "event_id": 3001,
+                "subject": 1005,
+                "verb": "lie",
+                "object": 1013,
+                "attribute": "unconscious"
+            },
+            {
+                "event_id": 3002,
+                "subject": 1001,
+                "verb": "look",
+                "object": 1005,
+                "attribute": "concerned"
+            },
+            {
+                "event_id": 3003,
+                "subject": 1001,
+                "verb": "head_jerk",
+                "attribute": "startled"
+            },
+            {
+                "event_id": 3004,
+                "subject": 1007,
+                "verb": "arrive",
+                "object": 1005
+            },
+            {
+                "event_id": 3005,
+                "subject": 1007,
+                "verb": "aid",
+                "object": 1005
+            },
+            {
+                "event_id": 3006,
+                "subject": 1011,
+                "verb": "arrive",
+                "object": 1005
+            },
+            {
+                "event_id": 3007,
+                "subject": 1011,
+                "verb": "aid",
+                "object": 1005
+            },
+            {
+                "event_id": 3008,
+                "subject": 1001,
+                "verb": "stand",
+                "attribute": "observing"
+            },
+            {
+                "event_id": 3009,
+                "subject": 1001,
+                "verb": "call",
+                "object": 1014,
+                "attribute": "serious"
+            },
+            {
+                "event_id": 3010,
+                "subject": 1001,
+                "verb": "walk",
+                "object": 1013,
+                "attribute": "observing"
+            },
+            {
+                "event_id": 3011,
+                "subject": 1007,
+                "verb": "look",
+                "object": 1001
+            },
+            {
+                "event_id": 3012,
+                "subject": 1001,
+                "verb": "return_look",
+                "object": 1007,
+                "attribute": "determined"
+            }
+        ],
+        "spatial": [
+            {
+                "spatial_id": 11001,
+                "subject": 1001,
+                "predicate": "wearing",
+                "object": 1002
+            },
+            {
+                "spatial_id": 11002,
+                "subject": 1001,
+                "predicate": "wearing",
+                "object": 1003
+            },
+            {
+                "spatial_id": 11003,
+                "subject": 1001,
+                "predicate": "wearing",
+                "object": 1004
+            },
+            {
+                "spatial_id": 11004,
+                "subject": 1005,
+                "predicate": "wearing",
+                "object": 1006
+            },
+            {
+                "spatial_id": 11005,
+                "subject": 1007,
+                "predicate": "wearing",
+                "object": 1008
+            },
+            {
+                "spatial_id": 11006,
+                "subject": 1007,
+                "predicate": "wearing",
+                "object": 1009
+            },
+            {
+                "spatial_id": 11007,
+                "subject": 1007,
+                "predicate": "wearing",
+                "object": 1010
+            },
+            {
+                "spatial_id": 11008,
+                "subject": 1011,
+                "predicate": "wearing",
+                "object": 1008
+            },
+            {
+                "spatial_id": 11009,
+                "subject": 1011,
+                "predicate": "wearing",
+                "object": 1009
+            },
+            {
+                "spatial_id": 11010,
+                "subject": 1011,
+                "predicate": "wearing",
+                "object": 1010
+            },
+            {
+                "spatial_id": 11011,
+                "subject": 1005,
+                "predicate": "lying_on",
+                "object": 1013
+            }
+        ],
+        "temporal": [
+            {
+                "temporal_id": 21000,
+                "subject": 3001,
+                "predicate": "before",
+                "object": 3002
+            },
+            {
+                "temporal_id": 21001,
+                "subject": 3002,
+                "predicate": "before",
+                "object": 3003
+            },
+            {
+                "temporal_id": 21002,
+                "subject": 3003,
+                "predicate": "before",
+                "object": 3004
+            },
+            {
+                "temporal_id": 21003,
+                "subject": 3004,
+                "predicate": "before",
+                "object": 3005
+            },
+            {
+                "temporal_id": 21004,
+                "subject": 3005,
+                "predicate": "before",
+                "object": 3006
+            },
+            {
+                "temporal_id": 21005,
+                "subject": 3006,
+                "predicate": "before",
+                "object": 3007
+            },
+            {
+                "temporal_id": 21006,
+                "subject": 3007,
+                "predicate": "before",
+                "object": 3008
+            },
+            {
+                "temporal_id": 21007,
+                "subject": 3008,
+                "predicate": "before",
+                "object": 3009
+            },
+            {
+                "temporal_id": 21008,
+                "subject": 3009,
+                "predicate": "before",
+                "object": 3010
+            },
+            {
+                "temporal_id": 21009,
+                "subject": 3010,
+                "predicate": "before",
+                "object": 3011
+            },
+            {
+                "temporal_id": 21010,
+                "subject": 3011,
+                "predicate": "before",
+                "object": 3012
+            }
+        ]
+    }
+}

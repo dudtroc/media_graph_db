@@ -2,7 +2,7 @@
 Database package for Scene Graph Database
 """
 
-from .scene_graph_db import SceneGraphDatabase
+from .database_manager import SceneGraphDatabaseManager
 
-__all__ = ['SceneGraphDatabase']
+__all__ = ['SceneGraphDatabaseManager']
 

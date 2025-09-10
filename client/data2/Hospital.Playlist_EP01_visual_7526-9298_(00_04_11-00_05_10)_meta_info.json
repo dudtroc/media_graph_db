@@ -1,0 +1,252 @@
+{
+    "Scene Number": "Hospital.Playlist_EP01|7526-9298",
+    "scene_graph": {
+        "meta": {
+            "scene_place": "interior_of_a_moving_ambulance",
+            "scene_time": "night",
+            "scene_atmosphere": "tense_and_urgent"
+        },
+        "objects": [
+            {
+                "object_id": 1001,
+                "super_type": "person",
+                "type of": "doctor",
+                "label": "Doctor 1",
+                "attributes": {
+                    "emotion": "worried"
+                }
+            },
+            {
+                "object_id": 1002,
+                "super_type": "person",
+                "type of": "patient",
+                "label": "Patient",
+                "attributes": {
+                    "emotion": "unconscious"
+                }
+            },
+            {
+                "object_id": 1003,
+                "super_type": "person",
+                "type of": "paramedic",
+                "label": "Paramedic 1",
+                "attributes": {
+                    "emotion": "anxious"
+                }
+            },
+            {
+                "object_id": 1004,
+                "super_type": "person",
+                "type of": "paramedic",
+                "label": "Paramedic 2",
+                "attributes": {
+                    "emotion": "anxious"
+                }
+            },
+            {
+                "object_id": 1005,
+                "super_type": "clothing",
+                "type of": "hoodie",
+                "label": "green hoodie",
+                "attributes": {
+                    "color of": "green"
+                }
+            },
+            {
+                "object_id": 1006,
+                "super_type": "clothing",
+                "type of": "jacket",
+                "label": "bright orange jacket",
+                "attributes": {
+                    "color of": "orange",
+                    "pattern": "reflective checkered"
+                }
+            },
+            {
+                "object_id": 1007,
+                "super_type": "clothing",
+                "type of": "jacket",
+                "label": "dark blue jacket",
+                "attributes": {
+                    "color of": "dark blue"
+                }
+            },
+            {
+                "object_id": 1008,
+                "super_type": "medical_equipment",
+                "type of": "stretcher",
+                "label": "stretcher"
+            },
+            {
+                "object_id": 1009,
+                "super_type": "medical_equipment",
+                "type of": "oxygen_mask",
+                "label": "oxygen mask"
+            },
+            {
+                "object_id": 1010,
+                "super_type": "medical_equipment",
+                "type of": "neck_brace",
+                "label": "neck brace"
+            },
+            {
+                "object_id": 1011,
+                "super_type": "bedding",
+                "type of": "blanket",
+                "label": "light blue blanket",
+                "attributes": {
+                    "color of": "light blue"
+                }
+            },
+            {
+                "object_id": 1012,
+                "super_type": "medical_equipment",
+                "type of": "pulse_oximeter",
+                "label": "pulse oximeter"
+            },
+            {
+                "object_id": 1013,
+                "super_type": "hair_style",
+                "type of": "short_dark_hair",
+                "label": "short dark hair"
+            }
+        ],
+        "events": [
+            {
+                "event_id": 3001,
+                "subject": 1001,
+                "verb": "sit",
+                "object": 1008
+            },
+            {
+                "event_id": 3002,
+                "subject": 1001,
+                "verb": "take",
+                "object": 1002,
+                "attribute": "hand"
+            },
+            {
+                "event_id": 3003,
+                "subject": 1001,
+                "verb": "place",
+                "object": 1012,
+                "attribute": "finger"
+            },
+            {
+                "event_id": 3004,
+                "subject": 1001,
+                "verb": "hold",
+                "object": 1002,
+                "attribute": "hand"
+            },
+            {
+                "event_id": 3005,
+                "subject": 1001,
+                "verb": "discuss",
+                "object": 1003,
+                "attribute": "condition"
+            },
+            {
+                "event_id": 3006,
+                "subject": 1001,
+                "verb": "discuss",
+                "object": 1004,
+                "attribute": "condition"
+            }
+        ],
+        "spatial": [
+            {
+                "spatial_id": 11001,
+                "subject": 1001,
+                "predicate": "wearing",
+                "object": 1005
+            },
+            {
+                "spatial_id": 11002,
+                "subject": 1002,
+                "predicate": "in",
+                "object": 1008
+            },
+            {
+                "spatial_id": 11003,
+                "subject": 1002,
+                "predicate": "wearing",
+                "object": 1009
+            },
+            {
+                "spatial_id": 11004,
+                "subject": 1002,
+                "predicate": "wearing",
+                "object": 1010
+            },
+            {
+                "spatial_id": 11005,
+                "subject": 1002,
+                "predicate": "covered_by",
+                "object": 1011
+            },
+            {
+                "spatial_id": 11006,
+                "subject": 1003,
+                "predicate": "wearing",
+                "object": 1006
+            },
+            {
+                "spatial_id": 11007,
+                "subject": 1004,
+                "predicate": "wearing",
+                "object": 1007
+            },
+            {
+                "spatial_id": 11008,
+                "subject": 1001,
+                "predicate": "hairstyle",
+                "object": 1013
+            },
+            {
+                "spatial_id": 11009,
+                "subject": 1003,
+                "predicate": "hairstyle",
+                "object": 1013
+            },
+            {
+                "spatial_id": 11010,
+                "subject": 1004,
+                "predicate": "hairstyle",
+                "object": 1013
+            }
+        ],
+        "temporal": [
+            {
+                "temporal_id": 21000,
+                "subject": 3001,
+                "predicate": "before",
+                "object": 3002
+            },
+            {
+                "temporal_id": 21001,
+                "subject": 3002,
+                "predicate": "before",
+                "object": 3003
+            },
+            {
+                "temporal_id": 21002,
+                "subject": 3003,
+                "predicate": "before",
+                "object": 3004
+            },
+            {
+                "temporal_id": 21003,
+                "subject": 3004,
+                "predicate": "before",
+                "object": 3005
+            },
+            {
+                "temporal_id": 21004,
+                "subject": 3005,
+                "predicate": "before",
+                "object": 3006
+            }
+        ]
+    }
+}

@@ -1,8 +1,7 @@
 """
-Data models and database schemas for Scene Graph Database
+Data models and API schemas for Scene Graph Database
 """
 
-from .database_schemas import *
 from .api_schemas import *
 
 __all__ = [

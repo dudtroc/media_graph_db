@@ -6,6 +6,7 @@
 *.pyc
 
 # large_file
+client/data/
 test/
 data/large_file
 data/narrative

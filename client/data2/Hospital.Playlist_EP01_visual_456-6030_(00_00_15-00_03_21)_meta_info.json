@@ -1,0 +1,390 @@
+{
+    "Scene Number": "Hospital.Playlist_EP01|456-6030",
+    "scene_graph": {
+        "meta": {
+            "scene_place": "living_room_of_large_cozy_house",
+            "scene_time": "night",
+            "scene_atmosphere": "tense_and_urgent_medical_crisis"
+        },
+        "objects": [
+            {
+                "object_id": 1001,
+                "super_type": "person",
+                "type of": "man",
+                "label": "Man in Green Hoodie",
+                "attributes": {
+                    "emotion": "neutral"
+                }
+            },
+            {
+                "object_id": 1002,
+                "super_type": "clothing",
+                "type of": "hooded_sweatshirt",
+                "label": "green hoodie",
+                "attributes": {
+                    "color of": "green"
+                }
+            },
+            {
+                "object_id": 1003,
+                "super_type": "clothing",
+                "type of": "jeans",
+                "label": "blue jeans",
+                "attributes": {
+                    "color of": "blue"
+                }
+            },
+            {
+                "object_id": 1004,
+                "super_type": "hair_style",
+                "type of": "short_hair",
+                "label": "black hair",
+                "attributes": {
+                    "color of": "black"
+                }
+            },
+            {
+                "object_id": 1005,
+                "super_type": "person",
+                "type of": "woman",
+                "label": "Woman with Glasses",
+                "attributes": {
+                    "emotion": "neutral"
+                }
+            },
+            {
+                "object_id": 1006,
+                "super_type": "accessory",
+                "type of": "glasses",
+                "label": "round-rimmed glasses",
+                "attributes": {
+                    "color of": "round-rimmed"
+                }
+            },
+            {
+                "object_id": 1007,
+                "super_type": "clothing",
+                "type of": "turtleneck",
+                "label": "light blue turtleneck",
+                "attributes": {
+                    "color of": "light blue"
+                }
+            },
+            {
+                "object_id": 1008,
+                "super_type": "clothing",
+                "type of": "blazer",
+                "label": "black blazer",
+                "attributes": {
+                    "color of": "black"
+                }
+            },
+            {
+                "object_id": 1009,
+                "super_type": "hair_style",
+                "type of": "bob",
+                "label": "short brown bob",
+                "attributes": {
+                    "color of": "brown"
+                }
+            },
+            {
+                "object_id": 1010,
+                "super_type": "person",
+                "type of": "man",
+                "label": "Man who Collapses",
+                "attributes": {
+                    "emotion": "neutral"
+                }
+            },
+            {
+                "object_id": 1011,
+                "super_type": "clothing",
+                "type of": "jacket",
+                "label": "dark jacket",
+                "attributes": {
+                    "color of": "dark"
+                }
+            },
+            {
+                "object_id": 1012,
+                "super_type": "clothing",
+                "type of": "shirt",
+                "label": "dark shirt",
+                "attributes": {
+                    "color of": "dark"
+                }
+            },
+            {
+                "object_id": 1013,
+                "super_type": "hair_style",
+                "type of": "short_hair",
+                "label": "dark hair",
+                "attributes": {
+                    "color of": "dark"
+                }
+            },
+            {
+                "object_id": 1014,
+                "super_type": "person",
+                "type of": "man",
+                "label": "Worried Man",
+                "attributes": {
+                    "emotion": "worried"
+                }
+            },
+            {
+                "object_id": 1015,
+                "super_type": "clothing",
+                "type of": "jacket",
+                "label": "dark jacket",
+                "attributes": {
+                    "color of": "dark"
+                }
+            },
+            {
+                "object_id": 1016,
+                "super_type": "hair_style",
+                "type of": "thinning_hair",
+                "label": "thinning dark hair",
+                "attributes": {
+                    "color of": "dark"
+                }
+            },
+            {
+                "object_id": 1017,
+                "super_type": "furniture",
+                "type of": "ladder",
+                "label": "ladder",
+                "attributes": {}
+            },
+            {
+                "object_id": 1018,
+                "super_type": "furniture",
+                "type of": "light_fixture",
+                "label": "ceiling light fixture",
+                "attributes": {}
+            }
+        ],
+        "events": [
+            {
+                "event_id": 3001,
+                "subject": 1001,
+                "verb": "let",
+                "object": 1005,
+                "attribute": "into the house"
+            },
+            {
+                "event_id": 3002,
+                "subject": 1001,
+                "verb": "make",
+                "object": null,
+                "attribute": "phone call"
+            },
+            {
+                "event_id": 3003,
+                "subject": 1005,
+                "verb": "wait",
+                "object": null,
+                "attribute": "in the living room"
+            },
+            {
+                "event_id": 3004,
+                "subject": 1010,
+                "verb": "enter",
+                "object": null,
+                "attribute": "with Worried Man"
+            },
+            {
+                "event_id": 3005,
+                "subject": 1010,
+                "verb": "work",
+                "object": 1018,
+                "attribute": "on ceiling light fixture"
+            },
+            {
+                "event_id": 3006,
+                "subject": 1010,
+                "verb": "fall",
+                "object": null,
+                "attribute": "unconscious"
+            },
+            {
+                "event_id": 3007,
+                "subject": 1005,
+                "verb": "rush",
+                "object": null,
+                "attribute": "to fallen man's side"
+            },
+            {
+                "event_id": 3008,
+                "subject": 1005,
+                "verb": "check",
+                "object": null,
+                "attribute": "pulse and breathing"
+            },
+            {
+                "event_id": 3009,
+                "subject": 1001,
+                "verb": "make",
+                "object": null,
+                "attribute": "emergency phone call"
+            },
+            {
+                "event_id": 3010,
+                "subject": 1014,
+                "verb": "panic",
+                "object": null
+            },
+            {
+                "event_id": 3011,
+                "subject": 1005,
+                "verb": "perform",
+                "object": null,
+                "attribute": "chest compressions"
+            }
+        ],
+        "spatial": [
+            {
+                "spatial_id": 11001,
+                "subject": 1001,
+                "predicate": "wearing",
+                "object": 1002
+            },
+            {
+                "spatial_id": 11002,
+                "subject": 1001,
+                "predicate": "wearing",
+                "object": 1003
+            },
+            {
+                "spatial_id": 11003,
+                "subject": 1001,
+                "predicate": "hairstyle",
+                "object": 1004
+            },
+            {
+                "spatial_id": 11004,
+                "subject": 1005,
+                "predicate": "wearing",
+                "object": 1006
+            },
+            {
+                "spatial_id": 11005,
+                "subject": 1005,
+                "predicate": "wearing",
+                "object": 1007
+            },
+            {
+                "spatial_id": 11006,
+                "subject": 1005,
+                "predicate": "wearing",
+                "object": 1008
+            },
+            {
+                "spatial_id": 11007,
+                "subject": 1005,
+                "predicate": "hairstyle",
+                "object": 1009
+            },
+            {
+                "spatial_id": 11008,
+                "subject": 1010,
+                "predicate": "wearing",
+                "object": 1011
+            },
+            {
+                "spatial_id": 11009,
+                "subject": 1010,
+                "predicate": "wearing",
+                "object": 1012
+            },
+            {
+                "spatial_id": 11010,
+                "subject": 1010,
+                "predicate": "hairstyle",
+                "object": 1013
+            },
+            {
+                "spatial_id": 11011,
+                "subject": 1014,
+                "predicate": "wearing",
+                "object": 1015
+            },
+            {
+                "spatial_id": 11012,
+                "subject": 1014,
+                "predicate": "hairstyle",
+                "object": 1016
+            },
+            {
+                "spatial_id": 11013,
+                "subject": 1014,
+                "predicate": "carrying",
+                "object": 1017
+            }
+        ],
+        "temporal": [
+            {
+                "temporal_id": 21000,
+                "subject": 3001,
+                "predicate": "before",
+                "object": 3002
+            },
+            {
+                "temporal_id": 21001,
+                "subject": 3002,
+                "predicate": "before",
+                "object": 3003
+            },
+            {
+                "temporal_id": 21002,
+                "subject": 3003,
+                "predicate": "before",
+                "object": 3004
+            },
+            {
+                "temporal_id": 21003,
+                "subject": 3004,
+                "predicate": "before",
+                "object": 3005
+            },
+            {
+                "temporal_id": 21004,
+                "subject": 3005,
+                "predicate": "before",
+                "object": 3006
+            },
+            {
+                "temporal_id": 21005,
+                "subject": 3006,
+                "predicate": "before",
+                "object": 3007
+            },
+            {
+                "temporal_id": 21006,
+                "subject": 3007,
+                "predicate": "before",
+                "object": 3008
+            },
+            {
+                "temporal_id": 21007,
+                "subject": 3008,
+                "predicate": "before",
+                "object": 3009
+            },
+            {
+                "temporal_id": 21008,
+                "subject": 3009,
+                "predicate": "before",
+                "object": 3010
+            },
+            {
+                "temporal_id": 21009,
+                "subject": 3010,
+                "predicate": "before",
+                "object": 3011
+            }
+        ]
+    }
+}
