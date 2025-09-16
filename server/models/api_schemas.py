@@ -15,7 +15,7 @@ class SceneCreate(BaseModel):
     """장면 생성 요청 스키마"""
     video_unique_id: int
     scene_data: Dict[str, Any]
-    pt_data: Dict[str, Any]
+    pt_data: Optional[Dict[str, Any]] = None
 
 class SearchQuery(BaseModel):
     """하이브리드 검색 요청 스키마"""

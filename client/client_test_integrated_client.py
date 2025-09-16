@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
 통합 클라이언트 테스트 스크립트
-SceneGraphClient의 기본 기능들을 테스트합니다.
+SceneGraphDBClient의 기본 기능들을 테스트합니다.
 """
 
 import os
 import sys
-from scene_graph_client import SceneGraphClient
+from scene_graph_client import SceneGraphDBClient
 
 def test_basic_connection():
     """기본 연결 테스트"""
     print("🔗 기본 연결 테스트")
     print("-" * 30)
     
-    client = SceneGraphClient()
+    client = SceneGraphDBClient()
     
     # 헬스 체크
     if client.health_check():
@@ -32,7 +32,7 @@ def test_video_management():
     print("\n📺 비디오 관리 테스트")
     print("-" * 30)
     
-    client = SceneGraphClient()
+    client = SceneGraphDBClient()
     
     # 비디오 목록 조회
     videos = client.get_videos()
@@ -56,7 +56,7 @@ def test_scene_management():
     print("\n🎭 장면 관리 테스트")
     print("-" * 30)
     
-    client = SceneGraphClient()
+    client = SceneGraphDBClient()
     
     # 비디오 목록 조회
     videos = client.get_videos()
@@ -93,7 +93,7 @@ def test_data_summary():
     print("\n📊 데이터 요약 테스트")
     print("-" * 30)
     
-    client = SceneGraphClient()
+    client = SceneGraphDBClient()
     
     summary = client.get_data_summary()
     if summary:
@@ -113,7 +113,7 @@ def test_export_import():
     print("\n📁 데이터 내보내기/가져오기 테스트")
     print("-" * 30)
     
-    client = SceneGraphClient()
+    client = SceneGraphDBClient()
     
     # 장면 목록 조회
     videos = client.get_videos()
@@ -149,7 +149,7 @@ def test_export_import():
 
 def main():
     """메인 테스트 함수"""
-    print("🧪 SceneGraphClient 통합 테스트")
+    print("🧪 SceneGraphDBClient 통합 테스트")
     print("=" * 50)
     
     tests = [

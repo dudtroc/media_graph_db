@@ -866,6 +866,61 @@ async def create_temporal(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"시간 관계 생성 실패: {str(e)}")
 
+@app.post("/embeddings", response_model=Dict[str, Any])
+async def create_embedding(
+    embedding_data: Dict[str, Any],
+    db: SceneGraphDatabaseManager = Depends(get_db_manager)
+):
+    """임베딩 데이터 생성"""
+    try:
+        print(f"🔗 임베딩 저장 시도: {embedding_data['node_id']}")
+        
+        # 임베딩 데이터를 직접 데이터베이스에 저장
+        session = db.get_session()
+        try:
+            from sqlalchemy import text
+            
+            # 기존 임베딩이 있는지 확인
+            existing = session.execute(text("""
+                SELECT node_id FROM embeddings WHERE node_id = :node_id
+            """), {'node_id': embedding_data['node_id']}).fetchone()
+            
+            if existing:
+                # 기존 임베딩 업데이트
+                session.execute(text("""
+                    UPDATE embeddings 
+                    SET embedding = :embedding, created_at = NOW()
+                    WHERE node_id = :node_id
+                """), {
+                    'node_id': embedding_data['node_id'],
+                    'embedding': embedding_data['embedding']
+                })
+            else:
+                # 새 임베딩 삽입
+                session.execute(text("""
+                    INSERT INTO embeddings (node_id, node_type, embedding, created_at)
+                    VALUES (:node_id, :node_type, :embedding, NOW())
+                """), {
+                    'node_id': embedding_data['node_id'],
+                    'node_type': embedding_data['node_type'],
+                    'embedding': embedding_data['embedding']
+                })
+            
+            session.commit()
+            print(f"✅ 임베딩 저장 성공: {embedding_data['node_id']}")
+            
+            return {
+                "success": True,
+                "node_id": embedding_data['node_id'],
+                "message": "임베딩 생성 완료"
+            }
+            
+        finally:
+            session.close()
+    except Exception as e:
+        print(f"❌ 임베딩 저장 실패: {embedding_data.get('node_id', 'unknown')} - {str(e)}")
+        raise HTTPException(status_code=500, detail=f"임베딩 생성 실패: {str(e)}")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

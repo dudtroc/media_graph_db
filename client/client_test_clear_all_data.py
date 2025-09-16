@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
 데이터베이스의 모든 데이터를 삭제하는 스크립트
-SceneGraphClient를 사용하여 안전하게 모든 비디오와 관련 데이터를 삭제합니다.
+SceneGraphDBClient를 사용하여 안전하게 모든 비디오와 관련 데이터를 삭제합니다.
 """
 
 import sys
 import os
-from scene_graph_client import SceneGraphClient
+from scene_graph_client import SceneGraphDBClient
 
 def clear_all_data(confirm: bool = False):
     """
@@ -19,7 +19,7 @@ def clear_all_data(confirm: bool = False):
     print("=" * 60)
     
     # 클라이언트 초기화
-    client = SceneGraphClient()
+    client = SceneGraphDBClient()
     
     # 1. API 서버 연결 확인
     if not client.health_check():
@@ -129,7 +129,7 @@ def clear_specific_videos(video_ids: list, confirm: bool = False):
     print(f"🗑️ 특정 비디오 삭제 ({len(video_ids)}개)")
     print("=" * 60)
     
-    client = SceneGraphClient()
+    client = SceneGraphDBClient()
     
     if not client.health_check():
         print("❌ API 서버에 연결할 수 없습니다.")
@@ -174,7 +174,7 @@ def show_current_data():
     print("📊 현재 데이터베이스 상태")
     print("=" * 60)
     
-    client = SceneGraphClient()
+    client = SceneGraphDBClient()
     
     if not client.health_check():
         print("❌ API 서버에 연결할 수 없습니다.")

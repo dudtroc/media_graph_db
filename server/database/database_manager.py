@@ -149,7 +149,7 @@ class SceneGraphDatabaseManager:
                 scene_db_id = new_scene.id
             
             # 2. 임베딩 데이터가 있는 경우에만 처리
-            if pt_data and 'z' in pt_data and 'orig_id' in pt_data:
+            if pt_data is not None and 'z' in pt_data and 'orig_id' in pt_data:
                 print(f"🔗 임베딩 데이터 처리 중: {len(pt_data['z'])}개 벡터")
                 
                 # PyTorch 텐서를 numpy로 변환
