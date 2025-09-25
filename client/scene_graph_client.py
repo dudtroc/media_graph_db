@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 
 # 기존 클라이언트 모듈들 import
 from util import VideoDataDeleter, SceneGraphDataChecker, SceneGraphAPIUploader
+from util.schema_info import SchemaInfoChecker
 
 # 환경 변수 로드
 load_dotenv()
@@ -41,6 +42,7 @@ class SceneGraphDBClient:
         self.deleter = VideoDataDeleter(self.db_api_base_url)
         self.checker = SceneGraphDataChecker(self.db_api_base_url)
         self.uploader = SceneGraphAPIUploader(self.db_api_base_url)
+        self.schema_checker = SchemaInfoChecker()
         
         print(f"🌐 SceneGraphClient 초기화 완료 - API URL: {self.db_api_base_url}")
     
@@ -480,6 +482,26 @@ class SceneGraphDBClient:
         """모든 저장된 데이터 확인"""
         self.checker.check_all_data()
     
+    def get_schema_info(self) -> None:
+        """데이터베이스 스키마 정보 조회"""
+        self.schema_checker.print_schema_summary()
+    
+    def get_foreign_keys(self) -> List[Dict[str, Any]]:
+        """외래키 제약조건 정보 조회"""
+        return self.schema_checker.get_foreign_keys()
+    
+    def get_table_info(self) -> List[Dict[str, Any]]:
+        """테이블 기본 정보 조회"""
+        return self.schema_checker.get_table_info()
+    
+    def get_column_info(self, table_name: str = None) -> List[Dict[str, Any]]:
+        """컬럼 정보 조회"""
+        return self.schema_checker.get_column_info(table_name)
+    
+    def get_index_info(self) -> List[Dict[str, Any]]:
+        """인덱스 정보 조회"""
+        return self.schema_checker.get_index_info()
+    
     def get_data_summary(self) -> Dict[str, Any]:
         """데이터베이스 요약 정보 조회"""
         try:
@@ -580,7 +602,8 @@ class SceneGraphDBClient:
             print("4. 장면그래프 업로드 (upload)")
             print("5. 벡터 검색 (search)")
             print("6. 데이터 요약 (summary)")
-            print("7. 종료 (quit)")
+            print("7. 스키마 정보 (schema)")
+            print("8. 종료 (quit)")
             
             choice = input("\n명령어를 선택하세요: ").strip().lower()
             
@@ -596,6 +619,8 @@ class SceneGraphDBClient:
                 self._interactive_search()
             elif choice == 'summary':
                 self._show_summary()
+            elif choice == 'schema':
+                self.get_schema_info()
             elif choice in ['quit', 'exit', 'q']:
                 print("👋 프로그램을 종료합니다.")
                 break
@@ -649,7 +674,7 @@ def main():
     """메인 실행 함수"""
     import sys
     
-    client = SceneGraphClient()
+    client = SceneGraphDBClient()
     
     # 명령행 인수 처리
     if len(sys.argv) > 1:
@@ -661,6 +686,8 @@ def main():
             client.list_videos()
         elif command == "summary":
             client._show_summary()
+        elif command == "schema":
+            client.get_schema_info()
         elif command == "interactive":
             client.interactive_mode()
         else:
@@ -668,6 +695,7 @@ def main():
             print("  python scene_graph_client.py check        # 데이터 확인")
             print("  python scene_graph_client.py list         # 비디오 목록")
             print("  python scene_graph_client.py summary      # 데이터 요약")
+            print("  python scene_graph_client.py schema       # 스키마 정보")
             print("  python scene_graph_client.py interactive  # 대화형 모드")
     else:
         # 기본적으로 대화형 모드 실행
