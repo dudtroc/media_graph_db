@@ -7,8 +7,12 @@
 import os
 import json
 import requests
-from typing import Dict, List, Any, Optional
+import torch
+import torch.nn.functional as F
+import heapq
+from typing import Dict, List, Any, Optional, Tuple
 from dotenv import load_dotenv
+from sentence_transformers import SentenceTransformer
 
 # 기존 클라이언트 모듈들 import
 from util import VideoDataDeleter, SceneGraphDataChecker, SceneGraphAPIUploader
@@ -422,31 +426,261 @@ class SceneGraphDBClient:
 
     # ==================== 검색 기능 ====================
     
-    def vector_search(self, query_embedding: List[float], node_type: str = None, top_k: int = 10) -> List[Dict[str, Any]]:
+    def vector_search(self, query: str, top_k: int = 5, tau: float = 0.30) -> Dict[str, Any]:
         """
-        벡터 기반 유사도 검색
+        사용자 질의를 triple로 변환하고 벡터 기반 유사도 검색 수행
         
         Args:
-            query_embedding: 검색할 벡터 (384차원)
-            node_type: 노드 타입 필터 (object, event, spatial, temporal)
-            top_k: 반환할 결과 수
+            query: 사용자 질의 문자열
+            top_k: 반환할 최대 결과 수
+            tau: 유사도 임계값
+        
+        Returns:
+            Dict: 검색 결과 (triples, search_results 포함)
+        """
+        try:
+            print(f"🔍 벡터 검색 시작: '{query}'")
+            
+            # QueryToTriplesConverter import 및 초기화
+            from reference_query_to_triples_converter import QueryToTriplesConverter
+            import os
+            
+            # 1. 질문을 triples로 변환
+            converter = QueryToTriplesConverter(
+                qa_template_path="templates/qa_to_triple_template.txt",
+                api_key=os.getenv("OPENAI_API_KEY"),
+                model="gpt-4o-mini"
+            )
+            
+            triples = converter.convert_question(query)
+            if not triples:
+                print("❌ 질문을 triple로 변환할 수 없습니다.")
+                return {
+                    "question": query,
+                    "triples": [],
+                    "search_results": [],
+                    "success": False,
+                    "error": "질문을 triple로 변환할 수 없습니다."
+                }
+            
+            print(f"✅ {len(triples)}개 triple 생성 완료")
+            
+            # 2. DB에서 triple 기반 검색 수행
+            search_results = self._search_triples_in_db(triples, tau, top_k)
+            
+            print(f"✅ 검색 완료: {len(search_results)}개 결과")
+            
+            return {
+                "question": query,
+                "triples": triples,
+                "search_results": search_results,
+                "success": True,
+                "tau": tau,
+                "top_k": top_k
+            }
+            
+        except Exception as e:
+            print(f"❌ 벡터 검색 실패: {e}")
+            return {
+                "question": query,
+                "triples": [],
+                "search_results": [],
+                "success": False,
+                "error": str(e)
+            }
+    
+    def _search_triples_in_db(self, triples: List[List[str]], tau: float, top_k: int) -> List[Dict[str, Any]]:
+        """
+        DB에서 triple 기반 벡터 검색 수행
+        
+        Args:
+            triples: 검색할 triple 리스트
+            tau: 유사도 임계값
+            top_k: 반환할 최대 결과 수
         
         Returns:
             List[Dict]: 검색 결과
         """
         try:
-            search_data = {
-                "query_embedding": query_embedding,
-                "node_type": node_type,
-                "top_k": top_k
-            }
             
-            response = self.session.post(f"{self.db_api_base_url}/search/vector", json=search_data)
-            response.raise_for_status()
-            return response.json()
+            # SBERT 모델 초기화
+            BERT_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+            DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+            sbert = SentenceTransformer(BERT_NAME, device=DEVICE).eval()
+            
+            @torch.no_grad()
+            def vec(txt: str) -> torch.Tensor:
+                return torch.tensor(
+                    sbert.encode(txt, max_length=32, normalize_embeddings=True),
+                    dtype=torch.float32
+                )
+            
+            def token_to_sentence(tok: str | None) -> str:
+                if not tok:
+                    return ""
+                sup, typ = tok.split(":", 1) if ":" in tok else (tok, tok)
+                return f"A {typ} which is a kind of {sup}."
+            
+            def embed_query(tokens: List[str]) -> Tuple[torch.Tensor|None, ...]:
+                s_tok, v_tok, o_tok = (tokens + [None, None])[:3]
+                q_s = vec(token_to_sentence(s_tok)) if s_tok else None
+                q_v = vec(v_tok) if v_tok else None
+                q_o = (
+                    vec(token_to_sentence(o_tok))
+                    if o_tok not in (None, "", "none", "None") else None
+                )
+                return q_s, q_v, q_o
+            
+            # 1. triples를 임베딩으로 변환
+            queries_emb = [embed_query(t) for t in triples]
+            total_q = len(queries_emb)
+            
+            # 2. DB에서 모든 장면 데이터 조회
+            videos = self.get_videos()
+            heap = []
+            
+            for video in videos:
+                scenes = self.get_scenes(video['id'])
+                
+                for scene in scenes:
+                    scene_id = scene['id']
+                    
+                    # 장면의 모든 노드 데이터 조회
+                    objects = self.get_scene_objects(scene_id)
+                    events = self.get_scene_events(scene_id)
+                    spatial = self.get_scene_spatial_relations(scene_id)
+                    temporal = self.get_scene_temporal_relations(scene_id)
+                    embeddings = self.get_scene_embeddings(scene_id)
+                    
+                    # 임베딩을 딕셔너리로 변환
+                    embedding_dict = {}
+                    for emb in embeddings:
+                        embedding_dict[emb['node_id']] = emb['embedding']
+                    
+                    # 장면의 triple 생성 (subject, event, object)
+                    scene_triples = []
+                    for event in events:
+                        subject_id = event['subject_id']
+                        event_id = event['event_id']
+                        object_id = event.get('object_id')
+                        verb = event['verb']
+                        
+                        # 해당 노드들의 임베딩이 있는지 확인
+                        if (subject_id in embedding_dict and 
+                            event_id in embedding_dict and 
+                            (object_id is None or object_id in embedding_dict)):
+                            scene_triples.append((subject_id, event_id, object_id, verb))
+                    
+                    if not scene_triples:
+                        continue
+                    
+                    # 3. 각 쿼리에 대해 매칭 수행
+                    matched = []
+                    used = set()
+                    
+                    for q_idx, (q_s, q_v, q_o) in enumerate(queries_emb):
+                        best = None
+                        
+                        for subject_id, event_id, object_id, verb in scene_triples:
+                            # 객체 필수 여부 판단
+                            need_obj = q_o is not None
+                            if need_obj and object_id is None:
+                                continue
+                            
+                            # 임베딩 벡터 가져오기
+                            v_s = torch.tensor(embedding_dict[subject_id], dtype=torch.float32)
+                            v_v = torch.tensor(embedding_dict[event_id], dtype=torch.float32)
+                            v_o = torch.tensor(embedding_dict[object_id], dtype=torch.float32) if object_id else None
+                            
+                            # 정규화
+                            v_s = F.normalize(v_s.unsqueeze(0), dim=1).squeeze(0)
+                            v_v = F.normalize(v_v.unsqueeze(0), dim=1).squeeze(0)
+                            if v_o is not None:
+                                v_o = F.normalize(v_o.unsqueeze(0), dim=1).squeeze(0)
+                            
+                            # 유사도 계산
+                            s_sim = float(torch.dot(q_s, v_s)) if q_s is not None else None
+                            v_sim = float(torch.dot(q_v, v_v)) if q_v is not None else None
+                            o_sim = (
+                                float(torch.dot(q_o, v_o))
+                                if (q_o is not None and v_o is not None) else None
+                            )
+                            
+                            # 임계치 검사
+                            if (q_s is not None and s_sim < tau) or \
+                               (q_v is not None and v_sim < tau) or \
+                               (q_o is not None and o_sim < tau):
+                                continue
+                            
+                            sims = [x for x in (s_sim, v_sim, o_sim) if x is not None]
+                            sim = sum(sims) / len(sims)
+                            
+                            if best is None or sim > best[0]:
+                                best = (sim, s_sim, v_sim, o_sim, (subject_id, event_id, object_id))
+                        
+                        if best:
+                            matched.append((q_idx,) + best)
+                            used.add(best[-1])
+                    
+                    if not matched:
+                        continue
+                    
+                    # 결과 저장
+                    match_cnt = len(matched)
+                    avg_sim = sum(m[1] for m in matched) / match_cnt
+                    
+                    result = {
+                        "scene_id": scene_id,
+                        "video_id": video['id'],
+                        "drama_name": video['drama_name'],
+                        "episode_number": video['episode_number'],
+                        "scene_number": scene['scene_number'],
+                        "match_count": match_cnt,
+                        "avg_similarity": avg_sim,
+                        "matched_triples": matched,
+                        "total_queries": total_q
+                    }
+                    
+                    heapq.heappush(heap, (match_cnt, avg_sim, result))
+                    if len(heap) > top_k:
+                        heapq.heappop(heap)
+            
+            # 결과 정렬 및 반환
+            results = sorted(heap, key=lambda x: (-x[0], -x[1]))
+            return [result for _, _, result in results]
+            
         except Exception as e:
-            print(f"❌ 벡터 검색 실패: {e}")
+            print(f"❌ DB triple 검색 실패: {e}")
             return []
+    
+    def print_search_results(self, search_results: List[Dict[str, Any]], triples: List[List[str]]) -> None:
+        """
+        검색 결과를 출력합니다.
+        
+        Args:
+            search_results: 검색 결과 리스트
+            triples: 검색에 사용된 triple 리스트
+        """
+        if not search_results:
+            print("❌ 검색 결과가 없습니다.")
+            return
+        
+        print("\n=== 검색 결과 ===")
+        for i, result in enumerate(search_results, 1):
+            print(f"\n{i}. 장면: {result['drama_name']} {result['episode_number']} - {result['scene_number']}")
+            print(f"   매칭된 triple 수: {result['match_count']}/{result['total_queries']}")
+            print(f"   평균 유사도: {result['avg_similarity']:.3f}")
+            print(f"   장면 ID: {result['scene_id']}")
+            
+            # 매칭된 triple 상세 정보 출력
+            if result['matched_triples']:
+                print("   매칭된 triple 상세:")
+                for q_idx, sim, s_sim, v_sim, o_sim, (subj_id, event_id, obj_id) in result['matched_triples']:
+                    if q_idx < len(triples):
+                        triple_str = " | ".join(str(t) for t in triples[q_idx])
+                        print(f"     • Q{q_idx}: {triple_str}")
+                        print(f"       유사도: {sim:.3f} (S={s_sim:.3f if s_sim else '--'}, V={v_sim:.3f if v_sim else '--'}, O={o_sim:.3f if o_sim else '--'})")
+                        print(f"       매칭된 노드: {subj_id} / {event_id} / {obj_id if obj_id else 'None'}")
     
     def hybrid_search(self, query_text: str, query_embedding: List[float], node_type: str = None, top_k: int = 10) -> List[Dict[str, Any]]:
         """
@@ -600,10 +834,9 @@ class SceneGraphDBClient:
             print("2. 비디오 목록 (list)")
             print("3. 비디오 삭제 (delete)")
             print("4. 장면그래프 업로드 (upload)")
-            print("5. 벡터 검색 (search)")
-            print("6. 데이터 요약 (summary)")
-            print("7. 스키마 정보 (schema)")
-            print("8. 종료 (quit)")
+            print("5. 데이터 요약 (summary)")
+            print("6. 스키마 정보 (schema)")
+            print("7. 종료 (quit)")
             
             choice = input("\n명령어를 선택하세요: ").strip().lower()
             
@@ -615,8 +848,6 @@ class SceneGraphDBClient:
                 self._interactive_delete()
             elif choice == 'upload':
                 self._interactive_upload_new()
-            elif choice == 'search':
-                self._interactive_search()
             elif choice == 'summary':
                 self._show_summary()
             elif choice == 'schema':
@@ -652,12 +883,6 @@ class SceneGraphDBClient:
         else:
             print("❌ 파일을 찾을 수 없습니다.")
     
-    def _interactive_search(self) -> None:
-        """대화형 검색 모드"""
-        print("벡터 검색을 위해서는 384차원 벡터가 필요합니다.")
-        print("현재는 간단한 텍스트 검색만 지원합니다.")
-        # TODO: 실제 벡터 검색 구현
-    
     def _show_summary(self) -> None:
         """데이터 요약 표시"""
         summary = self.get_data_summary()
@@ -688,6 +913,22 @@ def main():
             client._show_summary()
         elif command == "schema":
             client.get_schema_info()
+        elif command == "search":
+            if len(sys.argv) > 2:
+                query = sys.argv[2]
+                top_k = int(sys.argv[3]) if len(sys.argv) > 3 else 5
+                tau = float(sys.argv[4]) if len(sys.argv) > 4 else 0.30
+                
+                print(f"🔍 검색: '{query}' (top_k={top_k}, tau={tau})")
+                result = client.vector_search(query, top_k, tau)
+                
+                if result['success']:
+                    print(f"✅ 검색 완료! {len(result['search_results'])}개 결과")
+                    client.print_search_results(result['search_results'], result['triples'])
+                else:
+                    print(f"❌ 검색 실패: {result.get('error', 'Unknown error')}")
+            else:
+                print("사용법: python scene_graph_client.py search \"질문\" [top_k] [tau]")
         elif command == "interactive":
             client.interactive_mode()
         else:
@@ -696,6 +937,7 @@ def main():
             print("  python scene_graph_client.py list         # 비디오 목록")
             print("  python scene_graph_client.py summary      # 데이터 요약")
             print("  python scene_graph_client.py schema       # 스키마 정보")
+            print("  python scene_graph_client.py search \"질문\" [top_k] [tau]  # 벡터 검색")
             print("  python scene_graph_client.py interactive  # 대화형 모드")
     else:
         # 기본적으로 대화형 모드 실행
