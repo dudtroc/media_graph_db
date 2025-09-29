@@ -1,0 +1,2 @@
+question:
+  qa2triple: "templates/qa_to_triple_template.txt"

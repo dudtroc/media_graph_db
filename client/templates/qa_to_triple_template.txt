@@ -1,0 +1,54 @@
+You are an expert in converting natural language questions into a list of triples (subject, verb, object).
+Your task is to extract the core semantic triples from the given question.
+
+Rules:
+1. Each triple should be a list of strings: `["subject", "verb", "object"]`.
+2. If an object is not explicitly mentioned or is ambiguous, use `null` or `None`.
+3. If there are multiple distinct actions or entities, generate multiple triples.
+4. Focus on the main entities and actions.
+5. The output should be a Python list of lists.
+6. Do not include any other text or explanation, only the list.
+
+Example Questions and Triples:
+
+Q: "남녀가 키스하는 장면을 찾아줘."
+A: [["person:man", "kiss", "person:woman"]]
+
+Q: "사람이 걷는 장면을 찾아줘."
+A: [["person", "walk", null]]
+
+Q: "차를 운전하는 장면을 찾아줘."
+A: [["person", "drive", "car"]]
+
+Q: "두 사람이 대화하는 장면을 찾아줘."
+A: [["person", "talk", "person"]]
+
+Q: "한 남자가 테이블에 앉아 커피를 마시는 장면을 찾아줘."
+A: [["person:man", "sit on", "table"], ["person:man", "drink", "coffee"]]
+
+Q: "아이가 공원에서 뛰어노는 장면을 찾아줘."
+A: [["child", "play", "park"]]
+
+Q: "경찰이 범인을 쫓는 장면을 찾아줘."
+A: [["police", "chase", "criminal"]]
+
+Q: "학생들이 교실에서 공부하는 장면을 찾아줘."
+A: [["student", "study", "classroom"]]
+
+Q: "고양이가 소파에서 자고 있는 장면을 찾아줘."
+A: [["cat", "sleep on", "sofa"]]
+
+Q: "요리사가 주방에서 요리하는 장면을 찾아줘."
+A: [["chef", "cook", "kitchen"]]
+
+Q: "비행기가 하늘을 나는 장면을 찾아줘."
+A: [["airplane", "fly", "sky"]]
+
+Q: "의사가 환자를 진찰하는 장면을 찾아줘."
+A: [["doctor", "examine", "patient"]]
+
+Q: "가족이 식탁에서 저녁 식사를 하는 장면을 찾아줘."
+A: [["family", "eat", "dinner"], ["family", "at", "dining table"]]
+
+Q: "$CONTENT"
+A:

@@ -6,7 +6,6 @@ QueryToTriplesConverter 클래스
 
 import os
 import ast
-import yaml
 import torch
 import heapq
 import json
@@ -35,7 +34,7 @@ class QueryToTriplesConverter:
     """
     
     def __init__(self, 
-                 base_config_path: str = "config/base_params.yaml",
+                 qa_template_path: str = "templates/qa_to_triple_template.txt",
                  api_key: Optional[str] = None,
                  model: str = "gpt-4o-mini",
                  temperature: float = 0.0,
@@ -44,13 +43,13 @@ class QueryToTriplesConverter:
         QueryToTriplesConverter 초기화
         
         Args:
-            base_config_path (str): 기본 설정 파일 경로
+            qa_template_path (str): QA to triple 템플릿 파일 경로
             api_key (str, optional): OpenAI API 키. None이면 환경변수에서 로드
             model (str): 사용할 OpenAI 모델명
             temperature (float): 생성 온도 (0.0 = 결정적)
             max_tokens (int): 최대 토큰 수
         """
-        self.base_config_path = base_config_path
+        self.qa_template_path = qa_template_path
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -64,7 +63,7 @@ class QueryToTriplesConverter:
         # OpenAI 클라이언트 초기화
         self.client = OpenAI(api_key=api_key)
         
-        # 설정 파일 로드 및 instruction 템플릿 로드
+        # instruction 템플릿 로드
         self.qa_template = self._load_qa_template()
         
         # SBERT 모델 초기화
@@ -78,23 +77,14 @@ class QueryToTriplesConverter:
             str: QA 템플릿 내용
         """
         try:
-            # 기본 설정 파일 로드
-            base_cfg = yaml.safe_load(Path(self.base_config_path).read_text())
-            
-            # QA to triple instruction 경로 가져오기
-            qa_template_path = base_cfg["question"]["qa2triple"]
-            
-            # instruction 템플릿 로드
-            qa_template = Path(qa_template_path).read_text()
-            
+            # 템플릿 파일 직접 로드
+            qa_template = Path(self.qa_template_path).read_text(encoding='utf-8')
             return qa_template
             
         except FileNotFoundError as e:
-            raise FileNotFoundError(f"설정 파일을 찾을 수 없습니다: {e}")
-        except KeyError as e:
-            raise KeyError(f"설정 파일에 필요한 키가 없습니다: {e}")
+            raise FileNotFoundError(f"템플릿 파일을 찾을 수 없습니다: {e}")
         except Exception as e:
-            raise Exception(f"설정 파일 로드 중 오류 발생: {e}")
+            raise Exception(f"템플릿 파일 로드 중 오류 발생: {e}")
     
     @torch.no_grad()
     def _vec(self, txt: str) -> torch.Tensor:
@@ -107,10 +97,7 @@ class QueryToTriplesConverter:
         Returns:
             torch.Tensor: 변환된 벡터
         """
-        return torch.tensor(
-            self.sbert.encode(txt, max_length=32, normalize_embeddings=True),
-            dtype=torch.float32
-        )
+        return self.sbert.encode(txt, normalize_embeddings=True, convert_to_tensor=True).float()
     
     def _token_to_sentence(self, tok: str | None) -> str:
         """
@@ -160,8 +147,12 @@ class QueryToTriplesConverter:
         if start == -1 or end == -1 or end <= start:
             return []
         try:
-            return ast.literal_eval(txt[start : end + 1])
-        except Exception:
+            # null을 None으로 변환
+            list_str = txt[start : end + 1].replace('null', 'None')
+            return ast.literal_eval(list_str)
+        except Exception as e:
+            print(f"❌ 리스트 파싱 실패: {e}")
+            print(f"   원본 텍스트: {txt[start : end + 1]}")
             return []
     
     def _triples_in_scene(self, js) -> List[Tuple[int, int, Optional[int], str]]:
@@ -399,7 +390,7 @@ class QueryToTriplesConverter:
             dict: 템플릿 정보
         """
         return {
-            "base_config_path": self.base_config_path,
+            "qa_template_path": self.qa_template_path,
             "model": self.model,
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
@@ -430,46 +421,3 @@ class QueryToTriplesConverter:
             self.max_tokens = max_tokens
         print(f"파라미터가 업데이트되었습니다: temperature={self.temperature}, max_tokens={self.max_tokens}")
 
-
-# 사용 예시
-if __name__ == "__main__":
-    # 클래스 초기화
-    converter = QueryToTriplesConverter(
-        base_config_path="config/base_params.yaml",
-        model="gpt-4o-mini"
-    )
-    
-    # 예시 질문
-    example_question = "남녀가 키스하는 장면을 찾아줘."
-    
-    # 1. triples만 변환 (검색 없음)
-    print("=== triples만 변환 ===")
-    triples = converter.convert_question(example_question)
-    
-    if triples:
-        print(f"\n변환된 triples:")
-        for i, triple in enumerate(triples):
-            print(f"  {i+1}: {triple}")
-    else:
-        print("❌ 변환 실패")
-    
-    # 2. triples 변환 + 검색 수행
-    print("\n=== triples 변환 + 검색 수행 ===")
-    result = converter(example_question, tau=0.30, top_k=5)
-    
-    if result["success"]:
-        print(f"\n질문: {result['question']}")
-        print(f"triples: {result['triples']}")
-        print(f"검색 결과 수: {len(result['search_results'])}")
-        
-        if result['search_results']:
-            print("\n검색 결과:")
-            for i, (cnt, avg_sim, matched, drama, rel, total_q) in enumerate(result['search_results'][:3], 1):
-                print(f"  {i}. Scene = {drama}/{rel.name}")
-                print(f"      matched {cnt}/{total_q} triples | avg_sim = {avg_sim:.3f}")
-    else:
-        print(f"❌ 처리 실패: {result.get('error', 'Unknown error')}")
-    
-    # 템플릿 정보 출력
-    template_info = converter.get_template_info()
-    print(f"\n템플릿 정보: {template_info}")

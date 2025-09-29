@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-data2 폴더의 장면그래프 JSON과 PT 파일을 업로드하고 임베딩 저장을 테스트하는 스크립트
+data 폴더의 장면그래프 JSON과 PT 파일을 업로드하고 임베딩 저장을 테스트하는 스크립트
 """
 
 import os
@@ -9,7 +9,7 @@ import json
 import torch
 import numpy as np
 from pathlib import Path
-from scene_graph_client import SceneGraphClient
+from scene_graph_client import SceneGraphDBClient
 
 def check_pt_file_structure(pt_file_path: str) -> dict:
     """PT 파일의 구조를 확인하고 임베딩 정보를 반환"""
@@ -51,7 +51,34 @@ def check_pt_file_structure(pt_file_path: str) -> dict:
         print(f"❌ PT 파일 로드 실패: {e}")
         return {'success': False, 'error': str(e)}
 
-def test_single_file_upload(client: SceneGraphClient, json_file: str, pt_file: str) -> bool:
+def check_if_scene_exists(client: SceneGraphDBClient, drama_name: str, episode_number: str, start_frame: int, end_frame: int) -> bool:
+    """해당 장면이 이미 존재하는지 확인"""
+    try:
+        # 비디오 목록에서 해당 드라마/에피소드 찾기
+        videos = client.get_videos()
+        target_video = None
+        
+        for video in videos:
+            if video['drama_name'] == drama_name and video['episode_number'] == episode_number:
+                target_video = video
+                break
+        
+        if not target_video:
+            return False
+        
+        # 해당 비디오의 장면 목록 확인
+        scenes = client.get_scenes(target_video['id'])
+        for scene in scenes:
+            if scene['start_frame'] == start_frame and scene['end_frame'] == end_frame:
+                print(f"⚠️ 이미 존재하는 장면: {drama_name} {episode_number} 프레임 {start_frame}-{end_frame}")
+                return True
+        
+        return False
+    except Exception as e:
+        print(f"⚠️ 중복 체크 실패: {e}")
+        return False
+
+def test_single_file_upload(client: SceneGraphDBClient, json_file: str, pt_file: str) -> tuple[bool, str]:
     """단일 파일 업로드 테스트"""
     print(f"\n🚀 단일 파일 업로드 테스트")
     print(f"📄 JSON: {os.path.basename(json_file)}")
@@ -66,18 +93,36 @@ def test_single_file_upload(client: SceneGraphClient, json_file: str, pt_file: s
     
     print(f"✅ PT 파일 확인 완료 - 임베딩 {pt_info['embedding_count']}개, 차원 {pt_info['embedding_dim']}")
     
-    # 2. JSON 파일 업로드 (PT 파일은 자동으로 찾아서 처리됨)
+    # 2. 파일명에서 드라마/에피소드/프레임 정보 추출
+    try:
+        filename = os.path.basename(json_file)
+        import re
+        match = re.match(r'(.+)_(.+)_visual_(\d+)-(\d+)_.*_meta_info\.json', filename)
+        if match:
+            drama_name, episode_number, start_frame, end_frame = match.groups()
+            start_frame, end_frame = int(start_frame), int(end_frame)
+            
+            # 3. 중복 체크
+            if check_if_scene_exists(client, drama_name, episode_number, start_frame, end_frame):
+                print(f"⏭️ 중복된 장면이므로 스킵합니다.")
+                return True, "skipped"
+        else:
+            print(f"⚠️ 파일명 파싱 실패, 중복 체크를 건너뜁니다.")
+    except Exception as e:
+        print(f"⚠️ 중복 체크 중 오류: {e}")
+    
+    # 4. JSON 파일 업로드 (PT 파일은 자동으로 찾아서 처리됨)
     print(f"\n📤 JSON 파일 업로드 시작...")
     success = client.upload_scene_graph(json_file)
     
     if success:
         print(f"✅ 업로드 성공!")
-        return True
+        return True, "success"
     else:
         print(f"❌ 업로드 실패!")
-        return False
+        return False, "failed"
 
-def verify_uploaded_data(client: SceneGraphClient, expected_drama: str, expected_episode: str) -> dict:
+def verify_uploaded_data(client: SceneGraphDBClient, expected_drama: str, expected_episode: str) -> dict:
     """업로드된 데이터 검증"""
     print(f"\n🔍 업로드된 데이터 검증")
     print("-" * 30)
@@ -135,7 +180,18 @@ def verify_uploaded_data(client: SceneGraphClient, expected_drama: str, expected
         if embeddings:
             print(f"✅ 임베딩 데이터가 성공적으로 저장되었습니다!")
             for i, emb in enumerate(embeddings[:3]):  # 처음 3개만 출력
-                print(f"  - 임베딩 {i+1}: 노드 ID {emb.get('node_id')}, 차원 {len(emb.get('embedding', []))}")
+                embedding_data = emb.get('embedding', [])
+                # embedding이 문자열인 경우 파싱
+                if isinstance(embedding_data, str):
+                    try:
+                        import json
+                        embedding_list = json.loads(embedding_data)
+                        dimension = len(embedding_list)
+                    except:
+                        dimension = "파싱 실패"
+                else:
+                    dimension = len(embedding_data)
+                print(f"  - 임베딩 {i+1}: 노드 ID {emb.get('node_id')}, 차원 {dimension}")
         else:
             print(f"⚠️ 임베딩 데이터가 없습니다.")
         
@@ -156,13 +212,13 @@ def verify_uploaded_data(client: SceneGraphClient, expected_drama: str, expected
 
 def main():
     """메인 실행 함수"""
-    print("🎬 data2 폴더 장면그래프 업로드 테스트")
+    print("🎬 data 폴더 장면그래프 업로드 테스트")
     print("=" * 60)
     
     # 클라이언트 초기화
     try:
-        client = SceneGraphClient()
-        print("✅ SceneGraphClient 초기화 완료")
+        client = SceneGraphDBClient()
+        print("✅ SceneGraphDBClient 초기화 완료")
     except Exception as e:
         print(f"❌ 클라이언트 초기화 실패: {e}")
         return
@@ -173,22 +229,23 @@ def main():
         print("💡 서버가 실행 중인지 확인해주세요.")
         return
     
-    # data2 폴더 경로
-    data2_dir = Path("data2")
-    if not data2_dir.exists():
-        print(f"❌ data2 폴더를 찾을 수 없습니다: {data2_dir.absolute()}")
+    # data 폴더 경로
+    data_dir = Path("data")
+    if not data_dir.exists():
+        print(f"❌ data 폴더를 찾을 수 없습니다: {data_dir.absolute()}")
         return
     
     # JSON 파일들 찾기
-    json_files = list(data2_dir.glob("*.json"))
+    json_files = list(data_dir.glob("*.json"))
     if not json_files:
-        print(f"❌ data2 폴더에서 JSON 파일을 찾을 수 없습니다.")
+        print(f"❌ data 폴더에서 JSON 파일을 찾을 수 없습니다.")
         return
     
     print(f"📁 발견된 JSON 파일: {len(json_files)}개")
     
     # 각 JSON 파일에 대해 테스트
     success_count = 0
+    skipped_count = 0
     total_count = len(json_files)
     
     for i, json_file in enumerate(json_files, 1):
@@ -218,24 +275,29 @@ def main():
             episode_number = "Unknown"
         
         # 단일 파일 업로드 테스트
-        upload_success = test_single_file_upload(client, str(json_file), str(pt_file))
+        upload_success, status = test_single_file_upload(client, str(json_file), str(pt_file))
         
         if upload_success:
-            # 업로드된 데이터 검증
-            verification = verify_uploaded_data(client, drama_name, episode_number)
-            
-            if verification['success']:
-                print(f"✅ [{i}/{total_count}] 테스트 성공!")
-                print(f"   - 비디오 ID: {verification['video_id']}")
-                print(f"   - 장면 ID: {verification['scene_id']}")
-                print(f"   - 객체: {verification['objects_count']}개")
-                print(f"   - 이벤트: {verification['events_count']}개")
-                print(f"   - 공간관계: {verification['spatial_count']}개")
-                print(f"   - 시간관계: {verification['temporal_count']}개")
-                print(f"   - 임베딩: {verification['embeddings_count']}개")
-                success_count += 1
+            # 중복 체크로 스킵된 경우인지 확인
+            if status == "skipped":
+                print(f"⏭️ [{i}/{total_count}] 중복으로 스킵됨")
+                skipped_count += 1
             else:
-                print(f"❌ [{i}/{total_count}] 데이터 검증 실패: {verification['error']}")
+                # 업로드된 데이터 검증
+                verification = verify_uploaded_data(client, drama_name, episode_number)
+                
+                if verification['success']:
+                    print(f"✅ [{i}/{total_count}] 테스트 성공!")
+                    print(f"   - 비디오 ID: {verification['video_id']}")
+                    print(f"   - 장면 ID: {verification['scene_id']}")
+                    print(f"   - 객체: {verification['objects_count']}개")
+                    print(f"   - 이벤트: {verification['events_count']}개")
+                    print(f"   - 공간관계: {verification['spatial_count']}개")
+                    print(f"   - 시간관계: {verification['temporal_count']}개")
+                    print(f"   - 임베딩: {verification['embeddings_count']}개")
+                    success_count += 1
+                else:
+                    print(f"❌ [{i}/{total_count}] 데이터 검증 실패: {verification['error']}")
         else:
             print(f"❌ [{i}/{total_count}] 업로드 실패")
     
@@ -244,7 +306,8 @@ def main():
     print(f"📊 테스트 결과 요약")
     print(f"{'='*60}")
     print(f"✅ 성공: {success_count}개")
-    print(f"❌ 실패: {total_count - success_count}개")
+    print(f"⏭️ 스킵: {skipped_count}개 (중복)")
+    print(f"❌ 실패: {total_count - success_count - skipped_count}개")
     print(f"📁 총 처리: {total_count}개")
     
     if success_count > 0:

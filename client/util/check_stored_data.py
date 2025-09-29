@@ -173,10 +173,22 @@ class SceneGraphDataChecker:
                 embeddings = self.get_embeddings(scene['id'])
                 print(f"\n     🔗 임베딩 정보 ({len(embeddings)}개):")
                 for emb in embeddings:
-                    embedding_vector = emb.get('embedding', [])
-                    vector_length = len(embedding_vector) if isinstance(embedding_vector, list) else 0
+                    embedding_data = emb.get('embedding', [])
+                    # embedding이 문자열인 경우 파싱
+                    if isinstance(embedding_data, str):
+                        try:
+                            import json
+                            embedding_vector = json.loads(embedding_data)
+                            vector_length = len(embedding_vector)
+                        except:
+                            embedding_vector = []
+                            vector_length = "파싱 실패"
+                    else:
+                        embedding_vector = embedding_data
+                        vector_length = len(embedding_vector) if isinstance(embedding_vector, list) else 0
+                    
                     print(f"       - 노드 ID: {emb.get('node_id', 'N/A')}, 타입: {emb.get('node_type', 'N/A')}, 벡터 차원: {vector_length}")
-                    if vector_length > 0:
+                    if isinstance(vector_length, int) and vector_length > 0:
                         print(f"         벡터 샘플: [{embedding_vector[0]:.4f}, {embedding_vector[1]:.4f}, {embedding_vector[2]:.4f}, ...]")
         
         print("\n" + "=" * 60)

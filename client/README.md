@@ -31,6 +31,7 @@ client/
 - 모든 기존 클라이언트 기능 통합
 - 비디오, 장면, 노드 관리
 - 장면그래프 업로드 및 검색
+- **R-GCN 그래프 임베딩을 활용한 고급 벡터 검색** ⭐ **NEW**
 - 데이터 내보내기/가져오기
 - 대화형 모드 지원
 
@@ -43,6 +44,16 @@ python scene_graph_client.py interactive
 python scene_graph_client.py check        # 데이터 확인
 python scene_graph_client.py list         # 비디오 목록
 python scene_graph_client.py summary      # 데이터 요약
+python scene_graph_client.py upload "json_file"  # 파일 업로드
+python scene_graph_client.py search "질문" [top_k] [tau]  # 벡터 검색 (R-GCN 지원)
+
+# 업로드 테스트
+python test_upload_simple.py              # data2 폴더 전체 업로드
+python test_upload_simple.py "json_file"  # 단일 파일 업로드
+
+# R-GCN 검색 테스트
+python test_rgcn_search.py               # R-GCN 검색 테스트
+python example_rgcn_usage.py             # R-GCN 사용 예시
 
 # Python 코드로 사용
 python -c "
@@ -55,12 +66,132 @@ client.check_all_data()
 #### 주요 메서드
 - `health_check()` - API 서버 연결 확인
 - `get_videos()` - 비디오 목록 조회
-- `upload_scene_graph()` - 장면그래프 업로드
-- `vector_search()` - 벡터 검색
+- `upload_scene_graph(json_file_path)` - **파일 기반 장면그래프 업로드** ⭐
+- `vector_search(query, top_k, tau)` - **벡터 기반 유사도 검색** ⭐
+- `print_search_results()` - 검색 결과 출력
 - `export_scene_data()` - 데이터 내보내기
+
+#### 파일 업로드 기능 ⭐ **NEW**
+JSON 파일과 대응하는 PT 파일을 이용하여 장면그래프 데이터를 업로드합니다.
+
+**특징:**
+- JSON 파일에서 장면그래프 데이터 자동 로드
+- PT 파일에서 임베딩 벡터 자동 로드
+- 파일명에서 드라마, 에피소드, 프레임 정보 자동 파싱
+- API를 통한 자동 비디오/장면/노드 생성
+
+**지원 파일 형식:**
+- **JSON 파일**: `{drama_name}_{episode}_{visual}_{start_frame}-{end_frame}_{timestamp}_meta_info.json`
+- **PT 파일**: `{drama_name}_{episode}_{visual}_{start_frame}-{end_frame}_{timestamp}_meta_info.pt`
+
+**사용 예시:**
+```bash
+# 명령행에서 업로드
+python scene_graph_client.py upload "data2/Hospital.Playlist_EP01_visual_181-455_(00_00_06-00_00_15)_meta_info.json"
+
+# Python 코드에서 사용
+from scene_graph_client import SceneGraphDBClient
+client = SceneGraphDBClient()
+success = client.upload_scene_graph("data2/your_file.json")
+```
+
+**출력 예시:**
+```
+🚀 장면그래프 파일 업로드 시작: data2/Hospital.Playlist_EP01_visual_181-455_(00_00_06-00_00_15)_meta_info.json
+==================================================
+📁 파일명 파싱: Hospital.Playlist_EP01_visual_181-455_(00_00_06-00_00_15)_meta_info.json
+✅ 파싱 결과: {'drama_name': 'Hospital.Playlist', 'episode_number': 'EP01', 'start_frame': 181, 'end_frame': 455}
+📺 비디오 정보: Hospital.Playlist EP01
+🎬 프레임 범위: 181-455
+📖 JSON 파일 로드: data2/Hospital.Playlist_EP01_visual_181-455_(00_00_06-00_00_15)_meta_info.json
+✅ JSON 데이터 로드 완료
+📖 PT 파일 로드: data2/Hospital.Playlist_EP01_visual_181-455_(00_00_06-00_00_15)_meta_info.pt
+✅ PT 데이터 로드 완료
+📊 PT 파일 키들: ['z', 'orig_id', 'node_type', 'path']
+✅ 임베딩 벡터 차원: torch.Size([10, 384])
+✅ 비디오 준비 완료: Hospital.Playlist EP01 (ID: 1)
+✅ 장면 생성 완료: 1
+🔗 노드 데이터 저장 시작: Scene ID 1
+✅ 모든 노드 데이터 저장 완료
+==================================================
+✅ 장면그래프 데이터 업로드 완료!
+📺 비디오: Hospital.Playlist EP01
+🎭 장면: 프레임 181-455
+🆔 비디오 ID: 1, 장면 ID: 1
+```
 
 #### 상세 사용법
 [CLIENT_USAGE.md](./CLIENT_USAGE.md) 참조
+
+---
+
+## 🧠 R-GCN 그래프 임베딩 검색 ⭐ **NEW**
+
+### 개요
+기존의 Sentence-BERT 기반 벡터 검색에 R-GCN(Relational Graph Convolutional Network) 그래프 임베딩을 추가하여 더 정확한 검색을 제공합니다.
+
+### 특징
+- **그래프 구조 고려**: 장면그래프의 노드 간 관계를 학습하여 더 정확한 임베딩 생성
+- **Triple 기반 검색**: 사용자 질의를 (Subject, Verb, Object) 형태로 변환하여 검색
+- **Fallback 지원**: R-GCN 실패 시 자동으로 Sentence-BERT로 fallback
+- **호환성 유지**: 기존 SBERT 검색과 완전 호환
+
+### 사용법
+
+#### Python 코드로 사용
+```python
+from scene_graph_client import SceneGraphDBClient
+
+client = SceneGraphDBClient("http://localhost:8000")
+
+# R-GCN을 사용한 검색 (기본값)
+results = client.vector_search(
+    query="사람이 걷는 장면을 찾아줘",
+    top_k=5,
+    tau=0.3,
+    use_rgcn=True  # R-GCN 사용
+)
+
+# SBERT만 사용한 검색 (비교용)
+sbert_results = client.vector_search(
+    query="사람이 걷는 장면을 찾아줘",
+    top_k=5,
+    tau=0.3,
+    use_rgcn=False  # SBERT만 사용
+)
+```
+
+#### 명령줄에서 사용
+```bash
+# R-GCN 검색 (기본값)
+python scene_graph_client.py search "사람이 걷는 장면을 찾아줘" 5 0.3
+
+# SBERT 검색
+python scene_graph_client.py search "사람이 걷는 장면을 찾아줘" 5 0.3 --no-rgcn
+```
+
+### 파일 구조
+```
+client/
+├── rgcn_model.py              # R-GCN 모델 클래스
+├── test_rgcn_search.py        # R-GCN 검색 테스트
+├── example_rgcn_usage.py      # R-GCN 사용 예시
+├── model/
+│   └── embed_triplet_struct_ver1+2/
+│       └── best_model.pt      # 학습된 R-GCN 모델
+└── config/
+    └── graph/
+        └── edge_type_map.json # 엣지 타입 매핑
+```
+
+### 테스트
+```bash
+# R-GCN 모델 단독 테스트
+python test_rgcn_search.py
+
+# R-GCN vs SBERT 비교 테스트
+python example_rgcn_usage.py
+```
 
 ---
 
