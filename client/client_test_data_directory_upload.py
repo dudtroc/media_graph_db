@@ -78,7 +78,7 @@ def check_if_scene_exists(client: SceneGraphDBClient, drama_name: str, episode_n
         print(f"⚠️ 중복 체크 실패: {e}")
         return False
 
-def test_single_file_upload(client: SceneGraphDBClient, json_file: str, pt_file: str) -> tuple[bool, str]:
+def test_single_file_upload(client: SceneGraphDBClient, json_file: str, pt_file: str, overwrite_embeddings: bool = False) -> tuple[bool, str]:
     """단일 파일 업로드 테스트"""
     print(f"\n🚀 단일 파일 업로드 테스트")
     print(f"📄 JSON: {os.path.basename(json_file)}")
@@ -102,10 +102,12 @@ def test_single_file_upload(client: SceneGraphDBClient, json_file: str, pt_file:
             drama_name, episode_number, start_frame, end_frame = match.groups()
             start_frame, end_frame = int(start_frame), int(end_frame)
             
-            # 3. 중복 체크
-            if check_if_scene_exists(client, drama_name, episode_number, start_frame, end_frame):
+            # 3. 중복 체크 (덮어쓰기 모드가 아닐 때만)
+            if not overwrite_embeddings and check_if_scene_exists(client, drama_name, episode_number, start_frame, end_frame):
                 print(f"⏭️ 중복된 장면이므로 스킵합니다.")
                 return True, "skipped"
+            elif overwrite_embeddings and check_if_scene_exists(client, drama_name, episode_number, start_frame, end_frame):
+                print(f"🔄 중복된 장면이지만 덮어쓰기 모드로 진행합니다.")
         else:
             print(f"⚠️ 파일명 파싱 실패, 중복 체크를 건너뜁니다.")
     except Exception as e:
@@ -113,7 +115,9 @@ def test_single_file_upload(client: SceneGraphDBClient, json_file: str, pt_file:
     
     # 4. JSON 파일 업로드 (PT 파일은 자동으로 찾아서 처리됨)
     print(f"\n📤 JSON 파일 업로드 시작...")
-    success = client.upload_scene_graph(json_file)
+    if overwrite_embeddings:
+        print("🔄 임베딩 덮어쓰기 모드 활성화")
+    success = client.upload_scene_graph(json_file, overwrite_embeddings=overwrite_embeddings)
     
     if success:
         print(f"✅ 업로드 성공!")
@@ -215,6 +219,18 @@ def main():
     print("🎬 data 폴더 장면그래프 업로드 테스트")
     print("=" * 60)
     
+    # 임베딩 덮어쓰기 옵션 확인
+    overwrite_embeddings = input("🔄 기존 임베딩을 덮어쓰시겠습니까? (y/N): ").lower().strip() == 'y'
+    if overwrite_embeddings:
+        print("⚠️ 경고: 기존 임베딩 데이터가 삭제되고 새로운 데이터로 교체됩니다!")
+        confirm = input("정말로 계속하시겠습니까? (y/N): ").lower().strip() == 'y'
+        if not confirm:
+            print("❌ 작업이 취소되었습니다.")
+            return
+        print("✅ 임베딩 덮어쓰기 모드로 진행합니다.")
+    else:
+        print("ℹ️ 일반 업로드 모드로 진행합니다.")
+    
     # 클라이언트 초기화
     try:
         client = SceneGraphDBClient()
@@ -275,7 +291,7 @@ def main():
             episode_number = "Unknown"
         
         # 단일 파일 업로드 테스트
-        upload_success, status = test_single_file_upload(client, str(json_file), str(pt_file))
+        upload_success, status = test_single_file_upload(client, str(json_file), str(pt_file), overwrite_embeddings)
         
         if upload_success:
             # 중복 체크로 스킵된 경우인지 확인

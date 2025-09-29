@@ -267,7 +267,7 @@ class SceneGraphDatabaseManager:
         finally:
             session.close()
     
-    def search_similar_nodes(self, query_embedding: List[float], node_type: str, top_k: int = 5) -> List[Dict]:
+    def search_similar_nodes(self, query_embedding: List[float], node_type: str, top_k: int = 5, scene_id: int = None) -> List[Dict]:
         """
         특정 타입의 노드 중에서 유사한 노드를 벡터 검색으로 찾기
         
@@ -275,6 +275,7 @@ class SceneGraphDatabaseManager:
             query_embedding: 쿼리 임베딩 벡터
             node_type: 노드 타입 ('object', 'event', 'spatial', 'temporal')
             top_k: 반환할 최대 결과 수
+            scene_id: 특정 장면으로 제한 (None이면 모든 장면)
             
         Returns:
             List[Dict]: 검색 결과
@@ -285,18 +286,23 @@ class SceneGraphDatabaseManager:
                 # pgvector를 사용한 벡터 검색 (cosine similarity)
                 # 벡터를 문자열로 변환하여 직접 쿼리에 삽입
                 vector_str = '[' + ','.join(map(str, query_embedding)) + ']'
+                # scene_id 필터 조건 추가
+                scene_filter = "AND s.id = :scene_id" if scene_id is not None else ""
+                
                 results = session.execute(text(f"""
                     SELECT o.id, o.object_id, o.super_type, o.type_of, o.label, o.attributes,
-                           s.scene_number, v.drama_name, v.episode_number,
+                           s.id as scene_id, s.scene_number, v.id as video_id, v.drama_name, v.episode_number, v.video_unique_id,
                            1 - (e.embedding <=> '{vector_str}'::vector) as similarity
                     FROM objects o
                     JOIN scenes s ON o.scene_id = s.id
                     JOIN video v ON s.video_id = v.id
                     JOIN embeddings e ON o.object_id = e.node_id AND e.node_type = 'object'
+                    WHERE 1=1 {scene_filter}
                     ORDER BY e.embedding <=> '{vector_str}'::vector
                     LIMIT :top_k
                 """), {
-                    'top_k': top_k
+                    'top_k': top_k,
+                    'scene_id': scene_id
                 }).fetchall()
                 
                 return [{
@@ -306,9 +312,12 @@ class SceneGraphDatabaseManager:
                     'type_of': row.type_of,
                     'label': row.label,
                     'attributes': row.attributes,
+                    'scene_id': row.scene_id,
                     'scene_number': row.scene_number,
+                    'video_id': row.video_id,
                     'drama_name': row.drama_name,
                     'episode_number': row.episode_number,
+                    'video_unique_id': row.video_unique_id,
                     'similarity': float(row.similarity)
                 } for row in results]
                 
@@ -316,18 +325,23 @@ class SceneGraphDatabaseManager:
                 # pgvector를 사용한 벡터 검색 (cosine similarity)
                 # 벡터를 문자열로 변환하여 직접 쿼리에 삽입
                 vector_str = '[' + ','.join(map(str, query_embedding)) + ']'
+                # scene_id 필터 조건 추가
+                scene_filter = "AND s.id = :scene_id" if scene_id is not None else ""
+                
                 results = session.execute(text(f"""
                     SELECT e.id, e.event_id, e.subject_id, e.verb, e.object_id, e.attributes,
-                           s.scene_number, v.drama_name, v.episode_number,
+                           s.id as scene_id, s.scene_number, v.id as video_id, v.drama_name, v.episode_number, v.video_unique_id,
                            1 - (emb.embedding <=> '{vector_str}'::vector) as similarity
                     FROM events e
                     JOIN scenes s ON e.scene_id = s.id
                     JOIN video v ON s.video_id = v.id
                     JOIN embeddings emb ON e.event_id = emb.node_id AND emb.node_type = 'event'
+                    WHERE 1=1 {scene_filter}
                     ORDER BY emb.embedding <=> '{vector_str}'::vector
                     LIMIT :top_k
                 """), {
-                    'top_k': top_k
+                    'top_k': top_k,
+                    'scene_id': scene_id
                 }).fetchall()
                 
                 return [{
@@ -337,9 +351,12 @@ class SceneGraphDatabaseManager:
                     'verb': row.verb,
                     'object_id': row.object_id,
                     'attributes': row.attributes,
+                    'scene_id': row.scene_id,
                     'scene_number': row.scene_number,
+                    'video_id': row.video_id,
                     'drama_name': row.drama_name,
                     'episode_number': row.episode_number,
+                    'video_unique_id': row.video_unique_id,
                     'similarity': float(row.similarity)
                 } for row in results]
             else:
@@ -785,6 +802,7 @@ class SceneGraphDatabaseManager:
         finally:
             session.close()
     
+
     def close(self):
         """데이터베이스 연결 종료"""
         if self.engine:

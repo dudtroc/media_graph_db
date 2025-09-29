@@ -7,6 +7,8 @@
 
 # large_file
 client/data/
+client/data_str/
+client/data_z/
 test/
 data/large_file
 data/narrative

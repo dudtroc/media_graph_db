@@ -29,6 +29,7 @@ class VectorSearchQuery(BaseModel):
     query_embedding: List[float]
     node_type: str
     top_k: int = 5
+    scene_id: Optional[int] = None
 
 class VideoResponse(BaseModel):
     """비디오 응답 스키마"""
@@ -60,4 +61,5 @@ class SearchResult(BaseModel):
     scene_number: str
     drama_name: str
     episode_number: str
+
 

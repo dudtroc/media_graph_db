@@ -133,14 +133,34 @@ class SceneGraphDBClient:
         """특정 장면의 임베딩 정보 조회"""
         return self.checker.get_embeddings(scene_id)
     
+    def delete_scene_embeddings(self, scene_id: int) -> bool:
+        """특정 장면의 모든 임베딩 정보 삭제 (실제로는 스킵 - 업데이트 로직 활용)"""
+        try:
+            print(f"🔄 장면 {scene_id}의 임베딩 덮어쓰기 준비")
+            
+            # 해당 장면의 모든 임베딩 조회
+            embeddings = self.get_scene_embeddings(scene_id)
+            if not embeddings:
+                print(f"⚠️ 장면 {scene_id}에 기존 임베딩이 없습니다.")
+                return True
+            
+            print(f"ℹ️ 장면 {scene_id}에 {len(embeddings)}개의 기존 임베딩이 있습니다.")
+            print(f"ℹ️ 새로운 임베딩으로 자동 업데이트됩니다.")
+            return True
+            
+        except Exception as e:
+            print(f"❌ 임베딩 확인 실패: {e}")
+            return False
+    
     # ==================== 장면그래프 업로드 ====================
     
-    def upload_scene_graph(self, json_file_path: str) -> bool:
+    def upload_scene_graph(self, json_file_path: str, overwrite_embeddings: bool = False) -> bool:
         """
         JSON 파일과 대응하는 PT 파일을 이용하여 장면그래프 데이터를 업로드
         
         Args:
             json_file_path: JSON 파일 경로
+            overwrite_embeddings: 기존 임베딩을 덮어쓸지 여부 (기본값: False)
             
         Returns:
             bool: 업로드 성공 여부
@@ -218,7 +238,12 @@ class SceneGraphDBClient:
             # 9. 노드 데이터 저장 (objects, events, spatial, temporal)
             self._create_nodes_from_data(scene_id, scene_data.get('scene_graph', {}), actual_video_unique_id)
             
-            # 10. 임베딩 데이터 저장
+            # 10. 임베딩 덮어쓰기 처리
+            if overwrite_embeddings:
+                print("🔄 기존 임베딩 덮어쓰기 모드")
+                self.delete_scene_embeddings(scene_id)
+            
+            # 11. 임베딩 데이터 저장
             self._create_embeddings_from_pt_data(scene_id, pt_data, actual_video_unique_id)
             
             print("\n" + "=" * 50)
@@ -751,7 +776,10 @@ class SceneGraphDBClient:
     
     def _search_triples_in_db(self, triples: List[List[str]], tau: float, top_k: int, use_rgcn: bool = True) -> List[Dict[str, Any]]:
         """
-        DB에서 triple 기반 벡터 검색 수행 (R-GCN 그래프 임베딩 포함)
+        2단계 pgvector 기반 triple 검색 수행
+        
+        1단계: 우선순위에 따라 노드 검색 (verb > object > subject)
+        2단계: 모든 triple 조건을 만족하는 scene 찾기
         
         Args:
             triples: 검색할 triple 리스트
@@ -764,6 +792,7 @@ class SceneGraphDBClient:
         """
         try:
             BERT_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+            # CUDA 오류 방지를 위해 CPU 강제 사용
             DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
             
             # R-GCN 모델 초기화 (필요한 경우에만)
@@ -775,12 +804,13 @@ class SceneGraphDBClient:
                         model_path="model/embed_triplet_struct_ver1+2/best_model.pt",
                         edge_map_path="config/graph/edge_type_map.json",
                         sbert_model=BERT_NAME,
-                        device=DEVICE
+                        device="cpu"  # 강제로 CPU 사용
                     )
                     print("✅ R-GCN 모델 초기화 완료")
                 except Exception as e:
                     print(f"⚠️ R-GCN 모델 초기화 실패, SBERT만 사용: {e}")
                     use_rgcn = False
+                    rgcn_embedder = None
             
             # SBERT 모델 초기화
             sbert = SentenceTransformer(BERT_NAME, device=DEVICE).eval()
@@ -857,175 +887,437 @@ class SceneGraphDBClient:
                         raise
             total_q = len(queries_emb)
             
-            # 2. DB에서 모든 장면 데이터 조회
-            print(f"🔍 DB에서 비디오 목록 조회 중...")
-            try:
-                videos = self.get_videos()
-                print(f"✅ 비디오 {len(videos)}개 조회 완료")
-            except Exception as e:
-                print(f"❌ 비디오 목록 조회 실패: {e}")
-                raise
-            heap = []
+            # 2. 입력 검증
+            for i, triple in enumerate(triples):
+                if not any(triple):  # 모든 값이 None, "", 또는 False
+                    raise ValueError(f"Triple {i+1}의 모든 값이 null입니다: {triple}")
             
-            for video in videos:
-                try:
-                    print(f"🔍 비디오 {video['id']}의 장면들 조회 중...")
-                    scenes = self.get_scenes(video['id'])
-                    print(f"✅ 장면 {len(scenes)}개 조회 완료")
-                except Exception as e:
-                    print(f"❌ 장면 조회 실패 (비디오 {video['id']}): {e}")
+            # 3. 모든 triple 조건을 만족하는 scene 찾기
+            print(f"🔍 모든 triple 조건을 만족하는 scene 검색 시작...")
+            all_scene_results = self._find_scenes_matching_all_triples(queries_emb, triples, tau, top_k)
+            
+            return all_scene_results
+            
+        except Exception as e:
+            print(f"❌ 2단계 pgvector Triple 검색 실패: {e}")
+            return []
+    
+    def _find_scenes_matching_all_triples(self, queries_emb: List[Tuple], triples: List[List[str]], tau: float, top_k: int) -> List[Dict[str, Any]]:
+        """
+        모든 triple 조건을 만족하는 scene 찾기
+        
+        Args:
+            queries_emb: 임베딩된 triple 리스트
+            triples: 원본 triple 리스트
+            tau: 유사도 임계값
+            top_k: 반환할 최대 결과 수
+        
+        Returns:
+            List[Dict]: 검색 결과
+        """
+        try:
+            # 1. 각 triple별로 유사한 노드들 찾기
+            all_triple_results = []
+            
+            for query_idx, (s_emb, v_emb, o_emb) in enumerate(queries_emb):
+                print(f"🔍 Triple {query_idx + 1} 검색 중...")
+                
+                # 1단계: 우선순위에 따라 노드 검색
+                similar_nodes = self._find_similar_nodes_by_priority(s_emb, v_emb, o_emb, tau)
+                
+                print(f"  📊 검색된 노드: Subject {len(similar_nodes['subjects'])}개, Verb {len(similar_nodes['verbs'])}개, Object {len(similar_nodes['objects'])}개")
+                
+                # 2단계: 해당 triple의 유효한 조합 찾기
+                valid_combinations = self._find_valid_combinations_for_triple(
+                    similar_nodes, query_idx, triples[query_idx]
+                )
+                
+                print(f"  ✅ 유효한 조합: {len(valid_combinations)}개")
+                all_triple_results.append(valid_combinations)
+            
+            # 2. 모든 triple 조건을 만족하는 scene 찾기
+            print(f"🔍 모든 triple 조건을 만족하는 scene 검색...")
+            matching_scenes = self._find_scenes_satisfying_all_triples(all_triple_results, triples)
+            
+            # 3. 결과 정렬 및 상위 k개 선택
+            matching_scenes.sort(key=lambda x: x['total_avg_similarity'], reverse=True)
+            return matching_scenes[:top_k]
+            
+        except Exception as e:
+            print(f"❌ 모든 triple 조건 검색 실패: {e}")
+            return []
+    
+    def _find_similar_nodes_by_priority(self, s_emb, v_emb, o_emb, tau: float) -> Dict[str, List]:
+        """
+        우선순위에 따라 유사한 노드들 찾기
+        우선순위: verb > object > subject
+        """
+        similar_nodes = {
+            'subjects': [],
+            'verbs': [],
+            'objects': []
+        }
+        
+        # 1단계: Verb 검색 (event, spatial)
+        if v_emb is not None:
+            similar_nodes['verbs'] = self._find_similar_nodes_with_pgvector(v_emb, 'event', tau)
+            # Spatial도 검색 (object가 있는 경우)
+            if o_emb is not None:
+                spatials = self._find_similar_nodes_with_pgvector(o_emb, 'spatial', tau)
+                similar_nodes['verbs'].extend(spatials)
+        elif o_emb is not None:
+            # Verb가 null인 경우 Object를 event로 검색
+            similar_nodes['verbs'] = self._find_similar_nodes_with_pgvector(o_emb, 'event', tau)
+        
+        # 2단계: Object 검색 (verb가 있는 장면들에서)
+        if similar_nodes['verbs'] and o_emb is not None:
+            verb_scene_ids = set(v.get('scene_id') for v in similar_nodes['verbs'] if v.get('scene_id'))
+            for scene_id in verb_scene_ids:
+                scene_objects = self._find_similar_nodes_in_scene(o_emb, 'object', scene_id, tau)
+                similar_nodes['objects'].extend(scene_objects)
+        
+        # 3단계: Subject 검색 (verb가 있는 장면들에서)
+        if similar_nodes['verbs'] and s_emb is not None:
+            verb_scene_ids = set(v.get('scene_id') for v in similar_nodes['verbs'] if v.get('scene_id'))
+            for scene_id in verb_scene_ids:
+                scene_subjects = self._find_similar_nodes_in_scene(s_emb, 'object', scene_id, tau)
+                similar_nodes['subjects'].extend(scene_subjects)
+        
+        return similar_nodes
+    
+    def _find_valid_combinations_for_triple(self, similar_nodes: Dict[str, List], query_idx: int, triple: List[str]) -> List[Dict[str, Any]]:
+        """
+        특정 triple에 대한 유효한 조합 찾기
+        """
+        valid_combinations = []
+        
+        # 비디오별로 그룹화
+        video_groups = {}
+        
+        for node_type, nodes in similar_nodes.items():
+            for node in nodes:
+                video_id = node.get('video_id')
+                if video_id not in video_groups:
+                    video_groups[video_id] = {'subjects': [], 'verbs': [], 'objects': []}
+                video_groups[video_id][node_type].append(node)
+        
+        # 각 비디오별로 관계 확인
+        for video_id, groups in video_groups.items():
+            if not groups['verbs']:
+                continue
+                
+            scenes = self.get_scenes(video_id)
+            
+            for scene in scenes:
+                scene_id = scene['id']
+                events = self.get_scene_events(scene_id)
+                
+                for event in events:
+                    # Subject, Verb, Object 매칭 확인
+                    subject_match = None
+                    verb_match = None
+                    object_match = None
+                    
+                    # Subject 매칭
+                    for s in groups['subjects']:
+                        if s['object_id'] == event['subject_id']:
+                            subject_match = s
+                            break
+                    
+                    # Verb 매칭
+                    for v in groups['verbs']:
+                        if v['event_id'] == event['event_id']:
+                            verb_match = v
+                            break
+                    
+                    # Object 매칭
+                    if event.get('object_id'):
+                        for o in groups['objects']:
+                            if o['object_id'] == event['object_id']:
+                                object_match = o
+                                break
+                    elif not event.get('object_id') and not groups['objects']:
+                        # Object가 없고 검색 결과에도 없는 경우 (정상)
+                        object_match = True
+                    
+                    # 유효한 조합인지 확인
+                    if subject_match and verb_match and (object_match or object_match is True):
+                        # 유사도 계산
+                        subject_sim = subject_match['similarity']
+                        verb_sim = verb_match['similarity']
+                        object_sim = object_match['similarity'] if object_match and object_match is not True else 0.0
+                        
+                        # 평균 유사도 계산
+                        if event.get('object_id') and object_match and object_match is not True:
+                            avg_similarity = (subject_sim + verb_sim + object_sim) / 3
+                        else:
+                            avg_similarity = (subject_sim + verb_sim) / 2
+                        
+                        valid_combinations.append({
+                            "query_idx": query_idx,
+                            "subject_id": event['subject_id'],
+                            "subject_similarity": subject_sim,
+                            "event_id": event['event_id'],
+                            "event_similarity": verb_sim,
+                            "object_id": event.get('object_id'),
+                            "object_similarity": object_sim if event.get('object_id') and object_match and object_match is not True else None,
+                            "verb": event['verb'],
+                            "avg_similarity": avg_similarity,
+                            "scene_id": scene_id,
+                            "scene_number": scene['scene_number'],
+                            "drama_name": subject_match.get('drama_name', 'Unknown'),
+                            "episode_number": subject_match.get('episode_number', 'Unknown'),
+                            "video_unique_id": subject_match.get('video_unique_id', 0)
+                        })
+        
+        return valid_combinations
+    
+    def _find_scenes_satisfying_all_triples(self, all_triple_results: List[List[Dict]], triples: List[List[str]]) -> List[Dict[str, Any]]:
+        """
+        모든 triple 조건을 만족하는 scene 찾기
+        """
+        if not all_triple_results:
+            return []
+        
+        # 첫 번째 triple의 결과를 기준으로 시작
+        base_results = all_triple_results[0]
+        matching_scenes = []
+        
+        for base_result in base_results:
+            scene_id = base_result['scene_id']
+            video_id = base_result.get('video_unique_id')
+            
+            # 이 scene이 모든 triple 조건을 만족하는지 확인
+            satisfied_triples = [base_result]
+            
+            for triple_idx in range(1, len(all_triple_results)):
+                triple_results = all_triple_results[triple_idx]
+                
+                # 같은 scene에서 이 triple의 조건을 만족하는 결과가 있는지 확인
+                matching_result = None
+                for result in triple_results:
+                    if result['scene_id'] == scene_id:
+                        matching_result = result
+                        break
+                
+                if matching_result:
+                    satisfied_triples.append(matching_result)
+                else:
+                    # 이 scene은 모든 조건을 만족하지 않음
+                    break
+            
+            # 모든 triple 조건을 만족하는 경우
+            if len(satisfied_triples) == len(triples):
+                # 전체 유사도 계산
+                total_avg_similarity = sum(t['avg_similarity'] for t in satisfied_triples) / len(satisfied_triples)
+                
+                matching_scenes.append({
+                    "scene_id": scene_id,
+                    "scene_number": base_result['scene_number'],
+                    "drama_name": base_result['drama_name'],
+                    "episode_number": base_result['episode_number'],
+                    "video_unique_id": base_result['video_unique_id'],
+                    "total_avg_similarity": total_avg_similarity,
+                    "satisfied_triples": satisfied_triples,
+                    "triple_count": len(satisfied_triples),
+                    "total_triples": len(triples)
+                })
+        
+        return matching_scenes
+    
+    def _find_similar_nodes_with_pgvector(self, query_emb: torch.Tensor, node_type: str, tau: float) -> List[Dict[str, Any]]:
+        """pgvector로 유사한 노드들 찾기"""
+        if query_emb is None:
+            return []
+        
+        # 벡터를 리스트로 변환
+        query_vector = query_emb.tolist()
+        
+        # API 요청 데이터 구성
+        request_data = {
+            "query_embedding": query_vector,
+            "node_type": node_type,
+            "tau": tau,
+            "top_k": 100
+        }
+        
+        try:
+            # API 호출
+            response = self.session.post(
+                f"{self.db_api_base_url}/search/vector",
+                json=request_data,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                results = response.json()
+                return results
+            else:
+                print(f"❌ {node_type} 노드 검색 실패: {response.status_code} - {response.text}")
+                return []
+                
+        except Exception as e:
+            print(f"❌ {node_type} 노드 검색 중 오류: {e}")
+            return []
+    
+    def _find_related_triples_with_pgvector(self, subjects: List[Dict], verbs: List[Dict], 
+                                          objects: List[Dict], query_idx: int) -> List[Dict[str, Any]]:
+        """실제 관계를 가지는 Triple 조합 찾기"""
+        if not subjects or not verbs:
+            return []
+        
+        # 노드 ID 리스트 추출 (API 응답 구조에 맞게 수정)
+        subject_ids = [s['object_id'] for s in subjects]
+        verb_ids = [v['event_id'] for v in verbs]
+        object_ids = [o['object_id'] for o in objects] if objects else []
+        
+        # 유사도 매핑 딕셔너리 생성
+        subject_sim_map = {s['object_id']: s['similarity'] for s in subjects}
+        verb_sim_map = {v['event_id']: v['similarity'] for v in verbs}
+        object_sim_map = {o['object_id']: o['similarity'] for o in objects}
+        
+        # 관계 확인을 위한 API 요청
+        try:
+            valid_triples = []
+            
+            # 비디오별로 그룹화하여 같은 비디오 내에서 관계 찾기
+            video_groups = {}
+            
+            # Subject들을 비디오별로 그룹화
+            for subject in subjects:
+                video_id = subject.get('video_id')
+                if video_id not in video_groups:
+                    video_groups[video_id] = {'subjects': [], 'verbs': [], 'objects': []}
+                video_groups[video_id]['subjects'].append(subject)
+            
+            # Verb들을 비디오별로 그룹화
+            for verb in verbs:
+                video_id = verb.get('video_id')
+                if video_id not in video_groups:
+                    video_groups[video_id] = {'subjects': [], 'verbs': [], 'objects': []}
+                video_groups[video_id]['verbs'].append(verb)
+            
+            # Object들을 비디오별로 그룹화
+            for obj in objects:
+                video_id = obj.get('video_id')
+                if video_id not in video_groups:
+                    video_groups[video_id] = {'subjects': [], 'verbs': [], 'objects': []}
+                video_groups[video_id]['objects'].append(obj)
+            
+            # 각 비디오별로 관계 확인
+            for video_id, groups in video_groups.items():
+                if not groups['subjects'] or not groups['verbs']:
                     continue
+                
+                # 해당 비디오의 모든 장면에서 이벤트 확인
+                scenes = self.get_scenes(video_id)
                 
                 for scene in scenes:
                     scene_id = scene['id']
+                    events = self.get_scene_events(scene_id)
                     
-                    try:
-                        print(f"  🔍 장면 {scene_id}의 노드 데이터 조회 중...")
-                        # 장면의 모든 노드 데이터 조회
-                        objects = self.get_scene_objects(scene_id)
-                        events = self.get_scene_events(scene_id)
-                        spatial = self.get_scene_spatial_relations(scene_id)
-                        temporal = self.get_scene_temporal_relations(scene_id)
-                        embeddings = self.get_scene_embeddings(scene_id)
-                        print(f"  ✅ 노드 데이터 조회 완료: 객체 {len(objects)}개, 이벤트 {len(events)}개")
-                    except Exception as e:
-                        print(f"  ❌ 노드 데이터 조회 실패 (장면 {scene_id}): {e}")
-                        continue
-                    
-                    # 임베딩을 딕셔너리로 변환
-                    try:
-                        print(f"  🔍 임베딩 데이터 처리 중...")
-                        embedding_dict = {}
-                        for emb in embeddings:
-                            embedding_data = emb['embedding']
-                            # 문자열을 파싱해서 텐서로 변환
-                            if isinstance(embedding_data, str):
-                                # PostgreSQL pgvector 문자열을 파싱 (예: "[0.1,0.2,0.3]")
-                                try:
-                                    import ast
-                                    embedding_list = ast.literal_eval(embedding_data)
-                                    embedding_tensor = torch.tensor(embedding_list, dtype=torch.float32)
-                                except Exception as e:
-                                    print(f"    ❌ 임베딩 파싱 실패: {e}")
-                                    continue
-                            elif isinstance(embedding_data, list):
-                                embedding_tensor = torch.tensor(embedding_data, dtype=torch.float32)
+                    for event in events:
+                        event_id = event['event_id']
+                        subject_id = event['subject_id']
+                        object_id = event.get('object_id')
+                        verb = event['verb']
+                        
+                        # Subject와 Verb가 모두 검색 결과에 있는지 확인
+                        subject_match = None
+                        verb_match = None
+                        object_match = None
+                        
+                        # Subject 매칭
+                        for s in groups['subjects']:
+                            if s['object_id'] == subject_id:
+                                subject_match = s
+                                break
+                        
+                        # Verb 매칭
+                        for v in groups['verbs']:
+                            if v['event_id'] == event_id:
+                                verb_match = v
+                                break
+                        
+                        # Object 매칭 (있는 경우)
+                        if object_id and groups['objects']:
+                            for o in groups['objects']:
+                                if o['object_id'] == object_id:
+                                    object_match = o
+                                    break
+                        elif not object_id and not groups['objects']:
+                            # Object가 없고 검색 결과에도 없는 경우 (정상)
+                            object_match = True
+                        
+                        # 모든 요소가 매칭되면 유효한 Triple
+                        if subject_match and verb_match and (object_match or object_match is True):
+                            subject_sim = subject_match['similarity']
+                            verb_sim = verb_match['similarity']
+                            object_sim = object_match['similarity'] if object_match and object_match is not True else 0.0
+                            
+                            # 평균 유사도 계산
+                            if object_id and object_match and object_match is not True:
+                                avg_similarity = (subject_sim + verb_sim + object_sim) / 3
                             else:
-                                embedding_tensor = embedding_data
-                            embedding_dict[emb['node_id']] = embedding_tensor
-                        print(f"  ✅ 임베딩 {len(embedding_dict)}개 처리 완료")
-                    except Exception as e:
-                        print(f"  ❌ 임베딩 처리 실패: {e}")
-                        continue
-                    
-                    # 장면의 triple 생성 (subject, event, object)
-                    try:
-                        print(f"  🔍 장면 triple 생성 중...")
-                        scene_triples = []
-                        for event in events:
-                            subject_id = event['subject_id']
-                            event_id = event['event_id']
-                            object_id = event.get('object_id')
-                            verb = event['verb']
+                                avg_similarity = (subject_sim + verb_sim) / 2
                             
-                            # 해당 노드들의 임베딩이 있는지 확인
-                            if (subject_id in embedding_dict and 
-                                event_id in embedding_dict and 
-                                (object_id is None or object_id in embedding_dict)):
-                                # 임베딩 벡터로 변환
-                                subject_emb = embedding_dict[subject_id]
-                                event_emb = embedding_dict[event_id]
-                                object_emb = embedding_dict.get(object_id) if object_id else None
-                                scene_triples.append((subject_emb, event_emb, object_emb, verb))
-                        print(f"  ✅ 장면 triple {len(scene_triples)}개 생성 완료")
-                    except Exception as e:
-                        print(f"  ❌ 장면 triple 생성 실패: {e}")
-                        continue
-                    
-                    if not scene_triples:
-                        continue
-                    
-                    # 3. 각 쿼리에 대해 매칭 수행
-                    matched = []
-                    used = set()
-                    
-                    for q_idx, (q_s, q_v, q_o) in enumerate(queries_emb):
-                        # 쿼리 임베딩을 같은 디바이스로 이동
-                        q_s = q_s.to(DEVICE) if q_s is not None else None
-                        q_v = q_v.to(DEVICE) if q_v is not None else None
-                        q_o = q_o.to(DEVICE) if q_o is not None else None
-                        best = None
-                        
-                        for subject_emb, event_emb, object_emb, verb in scene_triples:
-                            # 객체 필수 여부 판단
-                            need_obj = q_o is not None
-                            if need_obj and object_emb is None:
-                                continue
-                            
-                            # 임베딩 벡터 가져오기 (이미 텐서이므로 직접 사용)
-                            v_s = subject_emb.to(DEVICE)
-                            v_v = event_emb.to(DEVICE)
-                            v_o = object_emb.to(DEVICE) if object_emb is not None else None
-                            
-                            # 정규화
-                            v_s = F.normalize(v_s.unsqueeze(0), dim=1).squeeze(0)
-                            v_v = F.normalize(v_v.unsqueeze(0), dim=1).squeeze(0)
-                            if v_o is not None:
-                                v_o = F.normalize(v_o.unsqueeze(0), dim=1).squeeze(0)
-                            
-                            # 유사도 계산
-                            s_sim = float(torch.dot(q_s, v_s)) if q_s is not None else None
-                            v_sim = float(torch.dot(q_v, v_v)) if q_v is not None else None
-                            o_sim = (
-                                float(torch.dot(q_o, v_o))
-                                if (q_o is not None and v_o is not None) else None
-                            )
-                            
-                            # 임계치 검사
-                            if (q_s is not None and s_sim < tau) or \
-                               (q_v is not None and v_sim < tau) or \
-                               (q_o is not None and o_sim < tau):
-                                continue
-                            
-                            sims = [x for x in (s_sim, v_sim, o_sim) if x is not None]
-                            sim = sum(sims) / len(sims)
-                            
-                            if best is None or sim > best[0]:
-                                best = (sim, s_sim, v_sim, o_sim, (subject_id, event_id, object_id))
-                        
-                        if best:
-                            matched.append((q_idx,) + best)
-                            used.add(best[-1])
-                    
-                    if not matched:
-                        continue
-                    
-                    # 결과 저장
-                    match_cnt = len(matched)
-                    avg_sim = sum(m[1] for m in matched) / match_cnt
-                    
-                    result = {
-                        "scene_id": scene_id,
-                        "video_id": video['id'],
-                        "drama_name": video['drama_name'],
-                        "episode_number": video['episode_number'],
-                        "scene_number": scene['scene_number'],
-                        "match_count": match_cnt,
-                        "avg_similarity": avg_sim,
-                        "matched_triples": matched,
-                        "total_queries": total_q
-                    }
-                    
-                    heapq.heappush(heap, (match_cnt, avg_sim, result))
-                    if len(heap) > top_k:
-                        heapq.heappop(heap)
+                            valid_triples.append({
+                                "query_idx": query_idx,
+                                "subject_id": subject_id,
+                                "subject_similarity": subject_sim,
+                                "event_id": event_id,
+                                "event_similarity": verb_sim,
+                                "object_id": object_id,
+                                "object_similarity": object_sim if object_id and object_match and object_match is not True else None,
+                                "verb": verb,
+                                "avg_similarity": avg_similarity,
+                                "scene_id": scene_id,
+                                "scene_number": scene['scene_number'],
+                                "drama_name": subject_match.get('drama_name', 'Unknown'),
+                                "episode_number": subject_match.get('episode_number', 'Unknown'),
+                                "video_unique_id": subject_match.get('video_unique_id', 0)
+                            })
             
-            # 결과 정렬 및 반환
-            results = sorted(heap, key=lambda x: (-x[0], -x[1]))
-            return [result for _, _, result in results]
+            return valid_triples
             
         except Exception as e:
-            print(f"❌ DB triple 검색 실패: {e}")
+            print(f"❌ 관계 확인 실패: {e}")
+            return []
+    
+    def _find_similar_nodes_in_scene(self, query_emb: torch.Tensor, node_type: str, scene_id: int, tau: float) -> List[Dict[str, Any]]:
+        """특정 장면에서 유사한 노드들 찾기"""
+        if query_emb is None:
+            return []
+        
+        # 벡터를 리스트로 변환
+        query_vector = query_emb.tolist()
+        
+        # API 요청 데이터 구성
+        request_data = {
+            "query_embedding": query_vector,
+            "node_type": node_type,
+            "tau": tau,
+            "top_k": 50,
+            "scene_id": scene_id  # 특정 장면으로 제한
+        }
+        
+        try:
+            # API 호출
+            response = self.session.post(
+                f"{self.db_api_base_url}/search/vector",
+                json=request_data,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                results = response.json()
+                return results
+            else:
+                print(f"❌ 장면 내 벡터 검색 실패: {response.status_code} - {response.text}")
+                return []
+                
+        except Exception as e:
+            print(f"❌ 장면 내 벡터 검색 API 호출 실패: {e}")
             return []
     
     def print_search_results(self, search_results: List[Dict[str, Any]], triples: List[List[str]]) -> None:
@@ -1043,19 +1335,33 @@ class SceneGraphDBClient:
         print("\n=== 검색 결과 ===")
         for i, result in enumerate(search_results, 1):
             print(f"\n{i}. 장면: {result['drama_name']} {result['episode_number']} - {result['scene_number']}")
-            print(f"   매칭된 triple 수: {result['match_count']}/{result['total_queries']}")
-            print(f"   평균 유사도: {result['avg_similarity']:.3f}")
+            print(f"   전체 평균 유사도: {result['total_avg_similarity']:.3f}")
             print(f"   장면 ID: {result['scene_id']}")
+            print(f"   매칭된 Triple: {result['triple_count']}/{result['total_triples']}개")
             
-            # 매칭된 triple 상세 정보 출력
-            if result['matched_triples']:
-                print("   매칭된 triple 상세:")
-                for q_idx, sim, s_sim, v_sim, o_sim, (subj_id, event_id, obj_id) in result['matched_triples']:
+            # 각 Triple별 상세 정보 출력
+            if 'satisfied_triples' in result:
+                print("   매칭된 Triple 상세:")
+                for j, triple_result in enumerate(result['satisfied_triples']):
+                    q_idx = triple_result['query_idx']
                     if q_idx < len(triples):
                         triple_str = " | ".join(str(t) for t in triples[q_idx])
-                        print(f"     • Q{q_idx}: {triple_str}")
-                        print(f"       유사도: {sim:.3f} (S={s_sim:.3f if s_sim else '--'}, V={v_sim:.3f if v_sim else '--'}, O={o_sim:.3f if o_sim else '--'})")
-                        print(f"       매칭된 노드: {subj_id} / {event_id} / {obj_id if obj_id else 'None'}")
+                        print(f"     • Triple {j+1}: {triple_str}")
+                        print(f"       유사도: {triple_result['avg_similarity']:.3f}")
+                        print(f"       Subject: {triple_result['subject_id']} (유사도: {triple_result['subject_similarity']:.3f})")
+                        print(f"       Verb: {triple_result['event_id']} - {triple_result['verb']} (유사도: {triple_result['event_similarity']:.3f})")
+                        if triple_result['object_id']:
+                            print(f"       Object: {triple_result['object_id']} (유사도: {triple_result['object_similarity']:.3f if triple_result['object_similarity'] else 'N/A'})")
+                        else:
+                            print(f"       Object: None")
+            else:
+                # 기존 형식 지원 (하위 호환성)
+                print(f"   평균 유사도: {result.get('avg_similarity', 0):.3f}")
+                if 'subject_id' in result:
+                    print(f"   Subject: {result['subject_id']}")
+                    print(f"   Verb: {result['event_id']} - {result['verb']}")
+                    if result.get('object_id'):
+                        print(f"   Object: {result['object_id']}")
     
     def hybrid_search(self, query_text: str, query_embedding: List[float], node_type: str = None, top_k: int = 10) -> List[Dict[str, Any]]:
         """
@@ -1269,49 +1575,6 @@ class SceneGraphDBClient:
         else:
             print(f"❌ 업로드 실패!")
     
-    def search_triples_with_pgvector(self, query_embedding: List[float], node_type: str = "object", top_k: int = 5) -> List[Dict[str, Any]]:
-        """
-        pgvector를 이용한 Triple 구조 검색 (방법 3)
-        
-        Args:
-            query_embedding: 검색할 벡터 (384차원)
-            node_type: 검색할 노드 타입
-            top_k: 반환할 최대 결과 수
-            
-        Returns:
-            List[Dict]: 검색 결과
-        """
-        try:
-            print(f"🔍 pgvector Triple 검색 시작...")
-            print(f"  - 쿼리 벡터 차원: {len(query_embedding)}")
-            print(f"  - 노드 타입: {node_type}")
-            print(f"  - 최대 결과: {top_k}개")
-            
-            # API 요청 데이터 구성
-            request_data = {
-                "query_embedding": query_embedding,
-                "node_type": node_type,
-                "top_k": top_k
-            }
-            
-            # API 호출
-            response = self.session.post(
-                f"{self.db_api_base_url}/search/triple",
-                json=request_data,
-                timeout=30
-            )
-            
-            if response.status_code == 200:
-                results = response.json()
-                print(f"✅ pgvector 검색 완료: {len(results)}개 결과")
-                return results
-            else:
-                print(f"❌ pgvector 검색 실패: {response.status_code} - {response.text}")
-                return []
-                
-        except Exception as e:
-            print(f"❌ pgvector 검색 중 오류: {e}")
-            return []
 
     def _show_summary(self) -> None:
         """데이터 요약 표시"""

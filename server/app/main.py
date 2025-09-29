@@ -750,7 +750,8 @@ async def vector_search(
         results = db.search_similar_nodes(
             search_query.query_embedding,
             search_query.node_type,
-            search_query.top_k
+            search_query.top_k,
+            search_query.scene_id
         )
         return results
     except Exception as e:
@@ -773,6 +774,7 @@ async def hybrid_search(
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"하이브리드 검색 실패: {str(e)}")
+
 
 # === 노드 관련 엔드포인트 ===
 

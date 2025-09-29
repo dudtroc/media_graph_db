@@ -199,6 +199,14 @@ class RGCNEmbedder:
             Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: (subject_emb, verb_emb, object_emb)
         """
         try:
+            # Object가 None인 경우 SBERT로 fallback
+            if not object_text or object_text in ("None", "none", ""):
+                print("⚠️ Object가 None이므로 SBERT로 fallback")
+                subject_emb = self.embed_text(self._token_to_sentence(subject)) if subject and subject != "None" else None
+                verb_emb = self.embed_text(verb) if verb and verb != "None" else None
+                object_emb = None
+                return subject_emb, verb_emb, object_emb
+            
             # 서브그래프 생성
             subgraph = self.create_triple_subgraph(subject, verb, object_text)
             
