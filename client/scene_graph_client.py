@@ -710,15 +710,14 @@ class SceneGraphDBClient:
 
     # ==================== 검색 기능 ====================
     
-    def vector_search(self, query: str, top_k: int = 5, tau: float = 0.30, use_rgcn: bool = True) -> Dict[str, Any]:
+    def vector_search(self, query: str, top_k: int = 5, tau: float = 0.30) -> Dict[str, Any]:
         """
-        사용자 질의를 triple로 변환하고 벡터 기반 유사도 검색 수행 (R-GCN 그래프 임베딩 지원)
+        사용자 질의를 triple로 변환하고 벡터 기반 유사도 검색 수행 (BERT 임베딩 사용)
         
         Args:
             query: 사용자 질의 문자열
             top_k: 반환할 최대 결과 수
             tau: 유사도 임계값
-            use_rgcn: R-GCN 그래프 임베딩 사용 여부 (기본값: True)
         
         Returns:
             Dict: 검색 결과 (triples, search_results 포함)
@@ -750,8 +749,8 @@ class SceneGraphDBClient:
             
             print(f"✅ {len(triples)}개 triple 생성 완료")
             
-            # 2. DB에서 triple 기반 검색 수행
-            search_results = self._search_triples_in_db(triples, tau, top_k, use_rgcn)
+            # 2. DB에서 triple 기반 검색 수행 (BERT만 사용)
+            search_results = self._search_triples_in_db(triples, tau, top_k)
             
             print(f"✅ 검색 완료: {len(search_results)}개 결과")
             
@@ -774,9 +773,9 @@ class SceneGraphDBClient:
                 "error": str(e)
             }
     
-    def _search_triples_in_db(self, triples: List[List[str]], tau: float, top_k: int, use_rgcn: bool = True) -> List[Dict[str, Any]]:
+    def _search_triples_in_db(self, triples: List[List[str]], tau: float, top_k: int) -> List[Dict[str, Any]]:
         """
-        2단계 pgvector 기반 triple 검색 수행
+        2단계 pgvector 기반 triple 검색 수행 (BERT 임베딩 사용)
         
         1단계: 우선순위에 따라 노드 검색 (verb > object > subject)
         2단계: 모든 triple 조건을 만족하는 scene 찾기
@@ -785,7 +784,6 @@ class SceneGraphDBClient:
             triples: 검색할 triple 리스트
             tau: 유사도 임계값
             top_k: 반환할 최대 결과 수
-            use_rgcn: R-GCN 그래프 임베딩 사용 여부
         
         Returns:
             List[Dict]: 검색 결과
@@ -795,23 +793,6 @@ class SceneGraphDBClient:
             # CUDA 오류 방지를 위해 CPU 강제 사용
             DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
             
-            # R-GCN 모델 초기화 (필요한 경우에만)
-            rgcn_embedder = None
-            if use_rgcn:
-                try:
-                    from rgcn_model import RGCNEmbedder
-                    rgcn_embedder = RGCNEmbedder(
-                        model_path="model/embed_triplet_struct_ver1+2/best_model.pt",
-                        edge_map_path="config/graph/edge_type_map.json",
-                        sbert_model=BERT_NAME,
-                        device="cpu"  # 강제로 CPU 사용
-                    )
-                    print("✅ R-GCN 모델 초기화 완료")
-                except Exception as e:
-                    print(f"⚠️ R-GCN 모델 초기화 실패, SBERT만 사용: {e}")
-                    use_rgcn = False
-                    rgcn_embedder = None
-            
             # SBERT 모델 초기화
             sbert = SentenceTransformer(BERT_NAME, device=DEVICE).eval()
             
@@ -820,36 +801,28 @@ class SceneGraphDBClient:
                 return sbert.encode(txt, normalize_embeddings=True, convert_to_tensor=True).float()
             
             def token_to_sentence(tok: str | None) -> str:
+                """
+                토큰을 문장 형태로 변환
+                "person:man" -> "A man which is a kind of person."
+                """
                 if not tok:
                     return ""
-                sup, typ = tok.split(":", 1) if ":" in tok else (tok, tok)
-                return f"A {typ} which is a kind of {sup}."
-            
-            def embed_query_with_rgcn(tokens: List[str]) -> Tuple[torch.Tensor|None, ...]:
-                """R-GCN을 사용한 쿼리 임베딩"""
-                s_tok, v_tok, o_tok = (tokens + [None, None])[:3]
-                try:
-                    if rgcn_embedder is None:
-                        raise ValueError("R-GCN embedder가 초기화되지 않았습니다.")
-                    # R-GCN으로 임베딩
-                    q_s, q_v, q_o = rgcn_embedder.embed_triple_with_rgcn(s_tok, v_tok, o_tok)
-                    return q_s, q_v, q_o
-                except Exception as e:
-                    print(f"⚠️ R-GCN 임베딩 실패, SBERT로 fallback: {e}")
-                    # Fallback to SBERT
-                    q_s = vec(token_to_sentence(s_tok)) if s_tok and s_tok != "None" else None
-                    q_v = vec(v_tok) if v_tok and v_tok != "None" else None
-                    q_o = (
-                        vec(token_to_sentence(o_tok))
-                        if o_tok and o_tok not in (None, "", "none", "None") else None
-                    )
-                    return q_s, q_v, q_o
+                if ":" in tok:
+                    super_type, type_of = tok.split(":", 1)
+                    return f"A {type_of} which is a kind of {super_type}."
+                else:
+                    # ":"가 없는 경우 그대로 반환
+                    return tok
             
             def embed_query(tokens: List[str]) -> Tuple[torch.Tensor|None, ...]:
-                """기존 SBERT 임베딩 (호환성 유지)"""
+                """BERT를 사용한 쿼리 임베딩"""
                 s_tok, v_tok, o_tok = (tokens + [None, None])[:3]
+                
+                # Subject와 Object는 문장 형태로 변환하여 임베딩
                 q_s = vec(token_to_sentence(s_tok)) if s_tok and s_tok != "None" else None
+                # Predicate는 그대로 임베딩
                 q_v = vec(v_tok) if v_tok and v_tok != "None" else None
+                # Object는 문장 형태로 변환하여 임베딩
                 q_o = (
                     vec(token_to_sentence(o_tok))
                     if o_tok and o_tok not in (None, "", "none", "None") else None
@@ -862,29 +835,13 @@ class SceneGraphDBClient:
             for i, t in enumerate(triples):
                 print(f"  Triple {i+1}: {t}")
                 try:
-                    if use_rgcn:
-                        # R-GCN을 사용한 임베딩
-                        emb = embed_query_with_rgcn(t)
-                        print(f"  R-GCN 임베딩 성공: {[type(e).__name__ if e is not None else 'None' for e in emb]}")
-                    else:
-                        # SBERT 임베딩
-                        emb = embed_query(t)
-                        print(f"  SBERT 임베딩 성공: {[type(e).__name__ if e is not None else 'None' for e in emb]}")
+                    # BERT 임베딩 사용
+                    emb = embed_query(t)
+                    print(f"  BERT 임베딩 성공: {[type(e).__name__ if e is not None else 'None' for e in emb]}")
                     queries_emb.append(emb)
                 except Exception as e:
                     print(f"  ❌ 임베딩 실패: {e}")
-                    if use_rgcn:
-                        print(f"  ⚠️ R-GCN 실패, SBERT로 fallback 시도...")
-                        try:
-                            # Fallback to SBERT
-                            emb = embed_query(t)
-                            print(f"  SBERT fallback 성공: {[type(e).__name__ if e is not None else 'None' for e in emb]}")
-                            queries_emb.append(emb)
-                        except Exception as e2:
-                            print(f"  ❌ SBERT fallback도 실패: {e2}")
-                            raise
-                    else:
-                        raise
+                    raise
             total_q = len(queries_emb)
             
             # 2. 입력 검증
@@ -929,7 +886,7 @@ class SceneGraphDBClient:
                 
                 # 2단계: 해당 triple의 유효한 조합 찾기
                 valid_combinations = self._find_valid_combinations_for_triple(
-                    similar_nodes, query_idx, triples[query_idx]
+                    similar_nodes, query_idx, triples[query_idx], s_emb, o_emb
                 )
                 
                 print(f"  ✅ 유효한 조합: {len(valid_combinations)}개")
@@ -949,8 +906,19 @@ class SceneGraphDBClient:
     
     def _find_similar_nodes_by_priority(self, s_emb, v_emb, o_emb, tau: float) -> Dict[str, List]:
         """
-        우선순위에 따라 유사한 노드들 찾기
-        우선순위: verb > object > subject
+        우선순위에 따라 유사한 노드들 찾기 (최적화된 버전)
+        
+        1. predicate가 None이 아닌 경우:
+           - Event 노드와 Spatial 노드의 유사도가 높은 것을 탐색
+           - 탐색된 predicate를 기준으로 연결된 subject와 object 노드를 DB에서 유사도 계산하여 검색
+           - None인 것은 탐색 대상에서 배제하고 아닌 부분을 이용해서 탐색
+        
+        2. predicate가 None인 경우:
+           - subject와 object를 이용해서 탐색 실시
+           - None인 것은 탐색 대상에서 배제하고 아닌 부분을 이용해서 탐색
+        
+        3. subject, predicate, object 모두 None인 경우:
+           - 탐색 실시하지 않음
         """
         similar_nodes = {
             'subjects': [],
@@ -958,116 +926,497 @@ class SceneGraphDBClient:
             'objects': []
         }
         
-        # 1단계: Verb 검색 (event, spatial)
+        # 1. predicate가 None이 아닌 경우
         if v_emb is not None:
-            similar_nodes['verbs'] = self._find_similar_nodes_with_pgvector(v_emb, 'event', tau)
-            # Spatial도 검색 (object가 있는 경우)
+            print(f"  🔍 Predicate 기준 검색 시작")
+            
+            # Event 노드와 Spatial 노드 검색 (전역 검색)
+            event_nodes = self._find_similar_nodes_with_pgvector(v_emb, 'event', tau)
+            try:
+                spatial_nodes = self._find_similar_nodes_with_pgvector(v_emb, 'spatial', tau)
+            except Exception as e:
+                print(f"  ⚠️ Spatial 노드 검색 실패, Event 노드만 사용: {e}")
+                spatial_nodes = []
+            
+            print(f"  📊 Event 노드: {len(event_nodes)}개, Spatial 노드: {len(spatial_nodes)}개")
+            
+            # 각 predicate 노드에 대해 연결된 노드들을 DB에서 유사도 계산하여 검색
+            for predicate_node in event_nodes + spatial_nodes:
+                scene_id = predicate_node.get('scene_id')
+                if not scene_id:
+                    continue
+                
+                # 연결된 노드들을 DB에서 유사도 계산하여 검색
+                connected_nodes = self._find_connected_nodes_with_similarity(
+                    scene_id, predicate_node, s_emb, o_emb, tau
+                )
+                
+                # 결과 추가
+                similar_nodes['subjects'].extend(connected_nodes['subjects'])
+                similar_nodes['objects'].extend(connected_nodes['objects'])
+                similar_nodes['verbs'].append(predicate_node)
+        
+        # 2. predicate가 None인 경우
+        elif s_emb is not None or o_emb is not None:
+            print(f"  🔍 Subject/Object 기준 검색 시작")
+            
+            # Subject가 None이 아닌 경우: 전역 검색
+            if s_emb is not None:
+                similar_nodes['subjects'] = self._find_similar_nodes_with_pgvector(s_emb, 'object', tau)
+                print(f"  📊 Subject 노드: {len(similar_nodes['subjects'])}개")
+            
+            # Object가 None이 아닌 경우: 전역 검색
             if o_emb is not None:
-                spatials = self._find_similar_nodes_with_pgvector(o_emb, 'spatial', tau)
-                similar_nodes['verbs'].extend(spatials)
-        elif o_emb is not None:
-            # Verb가 null인 경우 Object를 event로 검색
-            similar_nodes['verbs'] = self._find_similar_nodes_with_pgvector(o_emb, 'event', tau)
+                similar_nodes['objects'] = self._find_similar_nodes_with_pgvector(o_emb, 'object', tau)
+                print(f"  📊 Object 노드: {len(similar_nodes['objects'])}개")
+            
+            # Subject와 Object가 같은 장면에 있는지 확인
+            if s_emb is not None and o_emb is not None:
+                valid_subjects = []
+                valid_objects = []
+                
+                for subject in similar_nodes['subjects']:
+                    for obj in similar_nodes['objects']:
+                        if subject.get('scene_id') == obj.get('scene_id'):
+                            valid_subjects.append(subject)
+                            valid_objects.append(obj)
+                
+                similar_nodes['subjects'] = valid_subjects
+                similar_nodes['objects'] = valid_objects
+                print(f"  ✅ 같은 장면의 Subject-Object 쌍: {len(valid_subjects)}개")
         
-        # 2단계: Object 검색 (verb가 있는 장면들에서)
-        if similar_nodes['verbs'] and o_emb is not None:
-            verb_scene_ids = set(v.get('scene_id') for v in similar_nodes['verbs'] if v.get('scene_id'))
-            for scene_id in verb_scene_ids:
-                scene_objects = self._find_similar_nodes_in_scene(o_emb, 'object', scene_id, tau)
-                similar_nodes['objects'].extend(scene_objects)
-        
-        # 3단계: Subject 검색 (verb가 있는 장면들에서)
-        if similar_nodes['verbs'] and s_emb is not None:
-            verb_scene_ids = set(v.get('scene_id') for v in similar_nodes['verbs'] if v.get('scene_id'))
-            for scene_id in verb_scene_ids:
-                scene_subjects = self._find_similar_nodes_in_scene(s_emb, 'object', scene_id, tau)
-                similar_nodes['subjects'].extend(scene_subjects)
+        # 3. subject, predicate, object 모두 None인 경우: 검색하지 않음
+        else:
+            print("  ⚠️ 모든 요소가 None이므로 검색하지 않습니다.")
         
         return similar_nodes
     
-    def _find_valid_combinations_for_triple(self, similar_nodes: Dict[str, List], query_idx: int, triple: List[str]) -> List[Dict[str, Any]]:
+    def _find_connected_nodes_with_similarity(self, scene_id: int, predicate_node: Dict[str, Any], 
+                                            s_emb: torch.Tensor = None, o_emb: torch.Tensor = None, 
+                                            tau: float = 0.1) -> Dict[str, List]:
+        """
+        장면 내 연결된 노드들을 DB에서 유사도 계산하여 검색
+        
+        Args:
+            scene_id: 장면 ID
+            predicate_node: predicate 노드 정보
+            s_emb: subject 임베딩
+            o_emb: object 임베딩
+            tau: 유사도 임계값
+            
+        Returns:
+            연결된 노드들의 딕셔너리
+        """
+        connected_nodes = {
+            'subjects': [],
+            'objects': []
+        }
+        
+        try:
+            # Event 노드인 경우
+            if 'event_id' in predicate_node:
+                subject_id = predicate_node.get('subject_id')
+                object_id = predicate_node.get('object_id')
+                
+                print(f"  🔍 Event {predicate_node.get('event_id')} 매칭 시도:")
+                print(f"    - Subject ID: {subject_id}")
+                print(f"    - Object ID: {object_id}")
+                
+                # Subject 노드 유사도 검색 (DB에서 계산)
+                if s_emb is not None and subject_id:
+                    # 장면 내에서 유사한 Subject 검색 (specific_node_id 없이)
+                    # Subject 검색은 더 관대한 임계값 사용 (tau의 50%)
+                    subject_tau = max(0.0, tau * 0.5)
+                    subject_results = self._search_similarity_in_db(
+                        s_emb, 'object', subject_tau, 
+                        scene_id=scene_id
+                    )
+                    # 검색된 Subject 중에서 Event의 subject_id와 일치하는 것만 필터링
+                    matching_subjects = [s for s in subject_results if s['object_id'] == subject_id]
+                    connected_nodes['subjects'].extend(matching_subjects)
+                    print(f"  📊 Subject 검색 결과: {len(subject_results)}개 (장면 내)")
+                    print(f"    - 매칭된 Subject: {len(matching_subjects)}개")
+                    if matching_subjects:
+                        print(f"    - 찾은 Subject: {[s['object_id'] for s in matching_subjects]}")
+                    else:
+                        print(f"    - Subject 매칭 실패: {subject_id}")
+                
+                # Object 노드 유사도 검색 (DB에서 계산)
+                if object_id:
+                    # o_emb가 None이어도 object 검색 수행 (기본 임베딩 사용)
+                    if o_emb is not None:
+                        # 장면 내에서 유사한 Object 검색 (specific_node_id 없이)
+                        # Object 검색은 더 관대한 임계값 사용 (tau의 50%)
+                        object_tau = max(0.0, tau * 0.5)
+                        object_results = self._search_similarity_in_db(
+                            o_emb, 'object', object_tau,
+                            scene_id=scene_id
+                        )
+                        # 검색된 Object 중에서 Event의 object_id와 일치하는 것만 필터링
+                        matching_objects = [o for o in object_results if o['object_id'] == object_id]
+                        connected_nodes['objects'].extend(matching_objects)
+                        print(f"  📊 Object 검색 결과: {len(object_results)}개 (장면 내)")
+                        print(f"    - 매칭된 Object: {len(matching_objects)}개")
+                        if matching_objects:
+                            print(f"    - 찾은 Object: {[o['object_id'] for o in matching_objects]}")
+                        else:
+                            print(f"    - Object 매칭 실패: {object_id}")
+                    else:
+                        # o_emb가 None인 경우, object_id만으로 검색 (유사도 계산 없이)
+                        # 장면 내에서 해당 object_id를 가진 객체를 찾기
+                        object_results = self._search_similarity_in_db(
+                            None, 'object', 0.0,  # 유사도 계산 없이
+                            scene_id=scene_id, specific_node_id=object_id
+                        )
+                        if object_results:
+                            connected_nodes['objects'].extend(object_results)
+                            print(f"  📊 Object 검색 결과: {len(object_results)}개 (장면 내)")
+                            print(f"    - 찾은 Object: {[o['object_id'] for o in object_results]}")
+                        else:
+                            print(f"    - Object 매칭 실패: {object_id}")
+            
+            # Spatial 노드인 경우
+            elif 'spatial_id' in predicate_node:
+                subject_id = predicate_node.get('subject_id')
+                object_id = predicate_node.get('object_id')
+                
+                print(f"  🔍 Spatial {predicate_node.get('spatial_id')} 매칭 시도:")
+                print(f"    - Subject ID: {subject_id}")
+                print(f"    - Object ID: {object_id}")
+                
+                # Subject 노드 유사도 검색 (DB에서 계산)
+                if s_emb is not None and subject_id:
+                    # 장면 내에서 유사한 Subject 검색 (specific_node_id 없이)
+                    subject_tau = max(0.0, tau * 0.5)  # Subject 검색을 위한 더 관대한 임계값
+                    subject_results = self._search_similarity_in_db(
+                        s_emb, 'object', subject_tau,
+                        scene_id=scene_id
+                    )
+                    # 검색된 Subject 중에서 Spatial의 subject_id와 일치하는 것만 필터링
+                    matching_subjects = [s for s in subject_results if s['object_id'] == subject_id]
+                    connected_nodes['subjects'].extend(matching_subjects)
+                    print(f"  📊 Subject 검색 결과: {len(subject_results)}개 (장면 내)")
+                    print(f"    - 매칭된 Subject: {len(matching_subjects)}개")
+                    if matching_subjects:
+                        print(f"    - 찾은 Subject: {[s['object_id'] for s in matching_subjects]}")
+                    else:
+                        print(f"    - Subject 매칭 실패: {subject_id}")
+                
+                # Object 노드 유사도 검색 (DB에서 계산)
+                if object_id:
+                    # o_emb가 None이어도 object 검색 수행 (기본 임베딩 사용)
+                    if o_emb is not None:
+                        # 장면 내에서 유사한 Object 검색 (specific_node_id 없이)
+                        object_tau = max(0.0, tau * 0.5)  # Object 검색을 위한 더 관대한 임계값
+                        object_results = self._search_similarity_in_db(
+                            o_emb, 'object', object_tau,
+                            scene_id=scene_id
+                        )
+                        # 검색된 Object 중에서 Spatial의 object_id와 일치하는 것만 필터링
+                        matching_objects = [o for o in object_results if o['object_id'] == object_id]
+                        connected_nodes['objects'].extend(matching_objects)
+                        print(f"  📊 Object 검색 결과: {len(object_results)}개 (장면 내)")
+                        print(f"    - 매칭된 Object: {len(matching_objects)}개")
+                        if matching_objects:
+                            print(f"    - 찾은 Object: {[o['object_id'] for o in matching_objects]}")
+                        else:
+                            print(f"    - Object 매칭 실패: {object_id}")
+                    else:
+                        # o_emb가 None인 경우, object_id만으로 검색 (유사도 계산 없이)
+                        # 장면 내에서 해당 object_id를 가진 객체를 찾기
+                        object_results = self._search_similarity_in_db(
+                            None, 'object', 0.0,  # 유사도 계산 없이
+                            scene_id=scene_id, specific_node_id=object_id
+                        )
+                        if object_results:
+                            connected_nodes['objects'].extend(object_results)
+                            print(f"  📊 Object 검색 결과: {len(object_results)}개 (장면 내)")
+                            print(f"    - 찾은 Object: {[o['object_id'] for o in object_results]}")
+                        else:
+                            print(f"    - Object 매칭 실패: {object_id}")
+            
+            print(f"  📊 연결된 노드: Subject {len(connected_nodes['subjects'])}개, Object {len(connected_nodes['objects'])}개")
+            
+        except Exception as e:
+            print(f"❌ 연결된 노드 검색 실패: {e}")
+        
+        return connected_nodes
+
+    def _search_similarity_in_db(self, query_emb: torch.Tensor, node_type: str, tau: float, 
+                               scene_id: int = None, specific_node_id: str = None) -> List[Dict[str, Any]]:
+        """
+        DB에서 유사도 계산하여 검색 (서버에서 pgvector 사용)
+        
+        Args:
+            query_emb: 쿼리 임베딩
+            node_type: 노드 타입
+            tau: 유사도 임계값
+            scene_id: 장면 ID (선택사항)
+            specific_node_id: 특정 노드 ID (선택사항)
+            
+        Returns:
+            검색 결과 리스트
+        """
+        if query_emb is None:
+            # query_emb가 None인 경우, specific_node_id만으로 검색
+            if specific_node_id is None:
+                return []
+            # specific_node_id가 있는 경우, 해당 노드를 직접 조회
+            # 이 경우 유사도 계산 없이 정확한 매칭만 수행
+            request_data = {
+                "node_type": node_type,
+                "specific_node_id": specific_node_id
+            }
+            if scene_id is not None:
+                request_data["scene_id"] = scene_id
+            
+            try:
+                response = self.session.post(f"{self.db_api_base_url}/search/vector", json=request_data)
+                response.raise_for_status()
+                result = response.json()
+                # 서버가 직접 리스트를 반환하는 경우와 {'results': [...]} 형태를 반환하는 경우 모두 처리
+                if isinstance(result, list):
+                    return result
+                else:
+                    return result.get('results', [])
+            except Exception as e:
+                print(f"❌ specific_node_id 검색 실패: {e}")
+                return []
+        
+        # 벡터를 리스트로 변환
+        query_vector = query_emb.tolist()
+        
+        # API 요청 데이터 구성
+        request_data = {
+            "query_embedding": query_vector,
+            "node_type": node_type,
+            "tau": tau,
+            "top_k": 10
+        }
+        
+        # 선택적 파라미터 추가
+        if scene_id is not None:
+            request_data["scene_id"] = scene_id
+        if specific_node_id is not None:
+            request_data["specific_node_id"] = specific_node_id
+        
+        try:
+            # API 호출 (서버에서 pgvector로 유사도 계산)
+            response = self.session.post(
+                f"{self.db_api_base_url}/search/vector",
+                json=request_data,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                results = response.json()
+                return results
+            else:
+                print(f"❌ {node_type} 노드 검색 실패: {response.status_code} - {response.text}")
+                return []
+                
+        except Exception as e:
+            print(f"❌ {node_type} 노드 검색 중 오류: {e}")
+            return []
+
+    def _find_node_by_id(self, node_id: str, node_type: str, scene_id: int) -> Dict[str, Any]:
+        """
+        특정 ID로 노드 검색
+        
+        Args:
+            node_id: 노드 ID
+            node_type: 노드 타입 ('object', 'event', 'spatial')
+            scene_id: 장면 ID
+            
+        Returns:
+            노드 정보 딕셔너리 또는 None
+        """
+        try:
+            print(f"🔍 노드 검색: node_id={node_id}, node_type={node_type}, scene_id={scene_id}")
+            
+            # API를 통해 특정 노드 검색
+            if node_type == 'object':
+                response = self.session.get(f"{self.db_api_base_url}/objects")
+            elif node_type == 'event':
+                response = self.session.get(f"{self.db_api_base_url}/events")
+            elif node_type == 'spatial':
+                response = self.session.get(f"{self.db_api_base_url}/spatial")
+            else:
+                return None
+            
+            if response.status_code == 200:
+                nodes = response.json()
+                print(f"📊 {node_type} 노드 개수: {len(nodes)}")
+                
+                for node in nodes:
+                    node_key = 'object_id' if node_type == 'object' else 'event_id' if node_type == 'event' else 'spatial_id'
+                    if node.get(node_key) == node_id:
+                        if node.get('scene_id') == scene_id:
+                            print(f"✅ 노드 찾음: {node_id}")
+                            return node
+                        else:
+                            print(f"⚠️ 노드는 있지만 다른 장면: {node_id} (scene_id: {node.get('scene_id')})")
+                
+                print(f"❌ 노드를 찾을 수 없음: {node_id}")
+                return None
+            else:
+                print(f"❌ 노드 검색 API 호출 실패: {response.status_code}")
+                return None
+        except Exception as e:
+            print(f"❌ 노드 검색 실패: {e}")
+            return None
+    
+    
+    def _find_valid_combinations_for_triple(self, similar_nodes: Dict[str, List], query_idx: int, triple: List[str], s_emb: torch.Tensor = None, o_emb: torch.Tensor = None) -> List[Dict[str, Any]]:
         """
         특정 triple에 대한 유효한 조합 찾기
+        이미 predicate 기준으로 찾았으므로 단순히 결과를 반환
         """
         valid_combinations = []
         
-        # 비디오별로 그룹화
-        video_groups = {}
-        
-        for node_type, nodes in similar_nodes.items():
-            for node in nodes:
-                video_id = node.get('video_id')
-                if video_id not in video_groups:
-                    video_groups[video_id] = {'subjects': [], 'verbs': [], 'objects': []}
-                video_groups[video_id][node_type].append(node)
-        
-        # 각 비디오별로 관계 확인
-        for video_id, groups in video_groups.items():
-            if not groups['verbs']:
-                continue
-                
-            scenes = self.get_scenes(video_id)
-            
-            for scene in scenes:
-                scene_id = scene['id']
-                events = self.get_scene_events(scene_id)
-                
-                for event in events:
-                    # Subject, Verb, Object 매칭 확인
+        # Predicate가 있는 경우: 이미 매칭된 결과들을 조합
+        if similar_nodes['verbs']:
+            # Event 노드들 처리
+            for verb_node in similar_nodes['verbs']:
+                if 'event_id' in verb_node:
+                    # 해당 event와 매칭되는 subject, object 찾기
                     subject_match = None
-                    verb_match = None
                     object_match = None
                     
-                    # Subject 매칭
-                    for s in groups['subjects']:
-                        if s['object_id'] == event['subject_id']:
-                            subject_match = s
+                    print(f"    🔍 Event {verb_node.get('event_id')} 매칭 시도:")
+                    print(f"      - Subject ID: {verb_node.get('subject_id')}")
+                    print(f"      - Object ID: {verb_node.get('object_id')}")
+                    print(f"      - Available subjects: {[s['object_id'] for s in similar_nodes['subjects']]}")
+                    print(f"      - Available objects: {[o['object_id'] for o in similar_nodes['objects']]}")
+                    
+                    for subject in similar_nodes['subjects']:
+                        if subject['object_id'] == verb_node.get('subject_id'):
+                            subject_match = subject
+                            print(f"      ✅ Subject 매칭 성공: {subject['object_id']} (유사도: {subject['similarity']:.3f})")
                             break
                     
-                    # Verb 매칭
-                    for v in groups['verbs']:
-                        if v['event_id'] == event['event_id']:
-                            verb_match = v
+                    # Subject 매칭이 실패한 경우 디버깅 정보 출력
+                    if not subject_match:
+                        print(f"      ❌ Subject 매칭 실패: {verb_node.get('subject_id')}")
+                        print(f"        - Available subjects: {[s['object_id'] for s in similar_nodes['subjects']]}")
+                    
+                    for obj in similar_nodes['objects']:
+                        if obj['object_id'] == verb_node.get('object_id'):
+                            object_match = obj
+                            print(f"      ✅ Object 매칭 성공: {obj['object_id']} (유사도: {obj['similarity']:.3f})")
                             break
                     
-                    # Object 매칭
-                    if event.get('object_id'):
-                        for o in groups['objects']:
-                            if o['object_id'] == event['object_id']:
-                                object_match = o
-                                break
-                    elif not event.get('object_id') and not groups['objects']:
-                        # Object가 없고 검색 결과에도 없는 경우 (정상)
-                        object_match = True
-                    
-                    # 유효한 조합인지 확인
-                    if subject_match and verb_match and (object_match or object_match is True):
+                    # Subject가 매칭되어야만 결과 생성 (Subject 매칭이 실패한 경우는 제외)
+                    if subject_match and (object_match or not verb_node.get('object_id')):
                         # 유사도 계산
-                        subject_sim = subject_match['similarity']
-                        verb_sim = verb_match['similarity']
-                        object_sim = object_match['similarity'] if object_match and object_match is not True else 0.0
+                        subject_sim = subject_match['similarity'] if subject_match else 0.0
+                        verb_sim = verb_node['similarity']
+                        object_sim = object_match['similarity'] if object_match else 0.0
                         
                         # 평균 유사도 계산
-                        if event.get('object_id') and object_match and object_match is not True:
+                        if subject_match and object_match and verb_node.get('object_id'):
                             avg_similarity = (subject_sim + verb_sim + object_sim) / 3
-                        else:
+                        elif subject_match:
                             avg_similarity = (subject_sim + verb_sim) / 2
+                        else:
+                            # Subject가 None인 경우 Predicate만으로 계산
+                            avg_similarity = verb_sim
                         
                         valid_combinations.append({
                             "query_idx": query_idx,
-                            "subject_id": event['subject_id'],
+                            "subject_id": verb_node.get('subject_id'),
                             "subject_similarity": subject_sim,
-                            "event_id": event['event_id'],
+                            "subject_info": subject_match,
+                            "event_id": verb_node['event_id'],
                             "event_similarity": verb_sim,
-                            "object_id": event.get('object_id'),
-                            "object_similarity": object_sim if event.get('object_id') and object_match and object_match is not True else None,
-                            "verb": event['verb'],
+                            "object_id": verb_node.get('object_id'),
+                            "object_similarity": object_sim if verb_node.get('object_id') and object_match else None,
+                            "object_info": object_match,
+                            "verb": verb_node['verb'],
                             "avg_similarity": avg_similarity,
-                            "scene_id": scene_id,
-                            "scene_number": scene['scene_number'],
-                            "drama_name": subject_match.get('drama_name', 'Unknown'),
-                            "episode_number": subject_match.get('episode_number', 'Unknown'),
-                            "video_unique_id": subject_match.get('video_unique_id', 0)
+                            "scene_id": verb_node['scene_id'],
+                            "scene_number": verb_node['scene_number'],
+                            "drama_name": verb_node.get('drama_name', 'Unknown'),
+                            "episode_number": verb_node.get('episode_number', 'Unknown'),
+                            "video_unique_id": verb_node.get('video_unique_id', 0),
+                            "type": "event_triple"
+                        })
+            
+            # Spatial 노드들 처리
+            for verb_node in similar_nodes['verbs']:
+                if 'spatial_id' in verb_node:
+                    # 해당 spatial과 매칭되는 subject, object 찾기
+                    subject_match = None
+                    object_match = None
+                    
+                    for subject in similar_nodes['subjects']:
+                        if subject['object_id'] == verb_node.get('subject_id'):
+                            subject_match = subject
+                            break
+                    
+                    for obj in similar_nodes['objects']:
+                        if obj['object_id'] == verb_node.get('object_id'):
+                            object_match = obj
+                            break
+                    
+                    # Subject가 매칭되어야만 결과 생성 (Subject 매칭이 실패한 경우는 제외)
+                    if subject_match and object_match:
+                        # 유사도 계산
+                        subject_sim = subject_match['similarity'] if subject_match else 0.0
+                        predicate_sim = verb_node['similarity']
+                        object_sim = object_match['similarity'] if object_match else 0.0
+                        
+                        # 평균 유사도 계산
+                        if subject_match and object_match:
+                            avg_similarity = (subject_sim + predicate_sim + object_sim) / 3
+                        else:
+                            # Subject가 None인 경우 Predicate만으로 계산
+                            avg_similarity = predicate_sim
+                        
+                        valid_combinations.append({
+                            "query_idx": query_idx,
+                            "subject_id": verb_node.get('subject_id'),
+                            "subject_similarity": subject_sim,
+                            "subject_info": subject_match,
+                            "spatial_id": verb_node['spatial_id'],
+                            "predicate_similarity": predicate_sim,
+                            "object_id": verb_node.get('object_id'),
+                            "object_similarity": object_sim,
+                            "object_info": object_match,
+                            "predicate": verb_node['predicate'],
+                            "avg_similarity": avg_similarity,
+                            "scene_id": verb_node['scene_id'],
+                            "scene_number": verb_node['scene_number'],
+                            "drama_name": verb_node.get('drama_name', 'Unknown'),
+                            "episode_number": verb_node.get('episode_number', 'Unknown'),
+                            "video_unique_id": verb_node.get('video_unique_id', 0),
+                            "type": "spatial_triple"
+                        })
+        
+        # Predicate가 None인 경우: subject와 object만으로 매칭
+        else:
+            for subject in similar_nodes['subjects']:
+                for obj in similar_nodes['objects']:
+                    # 같은 장면에 있는지 확인
+                    if subject.get('scene_id') == obj.get('scene_id'):
+                        # 유사도 계산
+                        subject_sim = subject['similarity']
+                        object_sim = obj['similarity']
+                        avg_similarity = (subject_sim + object_sim) / 2
+                        
+                        valid_combinations.append({
+                            "query_idx": query_idx,
+                            "subject_id": subject['object_id'],
+                            "subject_similarity": subject_sim,
+                            "object_id": obj['object_id'],
+                            "object_similarity": object_sim,
+                            "avg_similarity": avg_similarity,
+                            "scene_id": subject['scene_id'],
+                            "scene_number": subject['scene_number'],
+                            "drama_name": subject.get('drama_name', 'Unknown'),
+                            "episode_number": subject.get('episode_number', 'Unknown'),
+                            "video_unique_id": subject.get('video_unique_id', 0),
+                            "type": "subject_object_only"
                         })
         
         return valid_combinations
@@ -1125,7 +1474,7 @@ class SceneGraphDBClient:
         
         return matching_scenes
     
-    def _find_similar_nodes_with_pgvector(self, query_emb: torch.Tensor, node_type: str, tau: float) -> List[Dict[str, Any]]:
+    def _find_similar_nodes_with_pgvector(self, query_emb: torch.Tensor, node_type: str, tau: float, top_k: int = 100) -> List[Dict[str, Any]]:
         """pgvector로 유사한 노드들 찾기"""
         if query_emb is None:
             return []
@@ -1348,10 +1697,41 @@ class SceneGraphDBClient:
                         triple_str = " | ".join(str(t) for t in triples[q_idx])
                         print(f"     • Triple {j+1}: {triple_str}")
                         print(f"       유사도: {triple_result['avg_similarity']:.3f}")
-                        print(f"       Subject: {triple_result['subject_id']} (유사도: {triple_result['subject_similarity']:.3f})")
-                        print(f"       Verb: {triple_result['event_id']} - {triple_result['verb']} (유사도: {triple_result['event_similarity']:.3f})")
+                        # Subject 정보 출력
+                        subject_info = triple_result.get('subject_info')
+                        if subject_info:
+                            subject_type = subject_info.get('type_of', 'Unknown')
+                            subject_super = subject_info.get('super_type', 'Unknown')
+                            print(f"       Subject: {triple_result['subject_id']} - {subject_type} ({subject_super}) (유사도: {triple_result['subject_similarity']:.3f})")
+                        else:
+                            # Subject 매칭이 실패한 경우, Event의 subject_id만 표시
+                            print(f"       Subject: {triple_result['subject_id']} (유사도: {triple_result['subject_similarity']:.3f}) - 매칭 실패")
+                        
+                        # Event 노드인 경우
+                        if 'event_id' in triple_result:
+                            print(f"       Verb: {triple_result['event_id']} - {triple_result['verb']} (유사도: {triple_result['event_similarity']:.3f})")
+                        # Spatial 노드인 경우
+                        elif 'spatial_id' in triple_result:
+                            print(f"       Predicate: {triple_result['spatial_id']} - {triple_result['predicate']} (유사도: {triple_result['predicate_similarity']:.3f})")
+                        # Subject-Object만 있는 경우
+                        elif triple_result.get('type') == 'subject_object_only':
+                            print(f"       Type: Subject-Object 매칭 (Predicate 없음)")
+                        
                         if triple_result['object_id']:
-                            print(f"       Object: {triple_result['object_id']} (유사도: {triple_result['object_similarity']:.3f if triple_result['object_similarity'] else 'N/A'})")
+                            obj_sim = triple_result.get('object_similarity')
+                            object_info = triple_result.get('object_info')
+                            if object_info:
+                                object_type = object_info.get('type_of', 'Unknown')
+                                object_super = object_info.get('super_type', 'Unknown')
+                                if obj_sim is not None:
+                                    print(f"       Object: {triple_result['object_id']} - {object_type} ({object_super}) (유사도: {obj_sim:.3f})")
+                                else:
+                                    print(f"       Object: {triple_result['object_id']} - {object_type} ({object_super}) (유사도: N/A)")
+                            else:
+                                if obj_sim is not None:
+                                    print(f"       Object: {triple_result['object_id']} (유사도: {obj_sim:.3f})")
+                                else:
+                                    print(f"       Object: {triple_result['object_id']} (유사도: N/A)")
                         else:
                             print(f"       Object: None")
             else:

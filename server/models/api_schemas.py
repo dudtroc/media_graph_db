@@ -26,10 +26,12 @@ class SearchQuery(BaseModel):
 
 class VectorSearchQuery(BaseModel):
     """벡터 검색 요청 스키마"""
-    query_embedding: List[float]
+    query_embedding: Optional[List[float]] = None
     node_type: str
     top_k: int = 5
     scene_id: Optional[int] = None
+    specific_node_id: Optional[str] = None
+    tau: float = 0.0
 
 class VideoResponse(BaseModel):
     """비디오 응답 스키마"""

@@ -1,54 +1,107 @@
-You are an expert in converting natural language questions into a list of triples (subject, verb, object).
-Your task is to extract the core semantic triples from the given question.
+Scene Graph Triple Generation Guideline
 
-Rules:
-1. Each triple should be a list of strings: `["subject", "verb", "object"]`.
-2. If an object is not explicitly mentioned or is ambiguous, use `null` or `None`.
-3. If there are multiple distinct actions or entities, generate multiple triples.
-4. Focus on the main entities and actions.
-5. The output should be a Python list of lists.
-6. Do not include any other text or explanation, only the list.
+Purpose:
+Convert a user’s natural-language query (in English or Korean) into a list of scene-graph-compatible (subject, predicate, object) triples for graph-based visual retrieval.
+Only visually observable, concrete, and semantically clear relations should be used.
 
-Example Questions and Triples:
 
-Q: "남녀가 키스하는 장면을 찾아줘."
-A: [["person:man", "kiss", "person:woman"]]
+1. Input Language
+- User queries may be in English or Korean.
+- Output must always be in English.
 
-Q: "사람이 걷는 장면을 찾아줘."
-A: [["person", "walk", null]]
 
-Q: "차를 운전하는 장면을 찾아줘."
-A: [["person", "drive", "car"]]
+2. Output Format — (Always a list of triples)
+- Use Python-style syntax:
+  [
+      ["super_type:type", predicate, "super_type:type"],
+      ...
+  ]
+- Even for one triple, wrap in a list:
+  → [[subject, predicate, object]]
+- Use None for any unknown or unspecified part.
 
-Q: "두 사람이 대화하는 장면을 찾아줘."
-A: [["person", "talk", "person"]]
 
-Q: "한 남자가 테이블에 앉아 커피를 마시는 장면을 찾아줘."
-A: [["person:man", "sit on", "table"], ["person:man", "drink", "coffee"]]
+3. Number of Triples
+- Generate 1 to 3 triples only.
+- Include only visually grounded, semantically strong relations.
+- Avoid abstract or symbolic predicates like "marrying", "celebrating", "thinking".
 
-Q: "아이가 공원에서 뛰어노는 장면을 찾아줘."
-A: [["child", "play", "park"]]
 
-Q: "경찰이 범인을 쫓는 장면을 찾아줘."
-A: [["police", "chase", "criminal"]]
+4. Entity Format (Subjects or Objects)
+- Format: "super_type:type"
+  Examples: "person:man", "object:ball", "cloth:wedding dress"
+- Use singular nouns only.
+- Do not use:
+  - Plurals (e.g., "people")
+  - Pronouns (e.g., "him", "them")
+  - IDs (e.g., "person_01")
 
-Q: "학생들이 교실에서 공부하는 장면을 찾아줘."
-A: [["student", "study", "classroom"]]
 
-Q: "고양이가 소파에서 자고 있는 장면을 찾아줘."
-A: [["cat", "sleep on", "sofa"]]
+5. Predicate Format
+- Must be visually grounded and observable.
+- Allowed examples: "wearing", "holding", "standing", "sitting", "walking", "looking at", "color of", "material of"
+- Disallowed examples: "marrying", "celebrating", "being happy", "getting ready"
 
-Q: "요리사가 주방에서 요리하는 장면을 찾아줘."
-A: [["chef", "cook", "kitchen"]]
 
-Q: "비행기가 하늘을 나는 장면을 찾아줘."
-A: [["airplane", "fly", "sky"]]
+6. Active and Passive Sentence Handling
+- Active: Subject performs the action
+  Example: "A woman is cleaning."
+  → [["person:woman", "cleaning", None]]
 
-Q: "의사가 환자를 진찰하는 장면을 찾아줘."
-A: [["doctor", "examine", "patient"]]
+- Passive: Object is being acted upon
+  Example: "The window is being cleaned."
+  → [[None, "cleaning", "object:window"]]
 
-Q: "가족이 식탁에서 저녁 식사를 하는 장면을 찾아줘."
-A: [["family", "eat", "dinner"], ["family", "at", "dining table"]]
+- Never reverse subject and object.
+  ✗ Wrong: [None, "running", "person:person"]
+  ✓ Correct: ["person:person", "running", None]
 
-Q: "$CONTENT"
-A:
+
+7. Attribute / Adjective Handling
+- Convert descriptive attributes into attribute triples.
+  Examples:
+  - "red wedding dress" → ["cloth:wedding dress", "color of", "red"]
+  - "wooden table" → ["furniture:table", "material of", "wood"]
+
+
+8. Visual Examples
+
+Query: "Find a woman cleaning."
+→ [["person:woman", "cleaning", None]]
+
+Query: "Find the window being cleaned."
+→ [[None, "cleaning", "object:window"]]
+
+Query: "Find a person throwing an orange basketball."
+→ [
+     ["person:person", "throwing", "object:ball"],
+     ["object:ball", "color of", "orange"]
+   ]
+
+Query: "웨딩 씬을 찾아줘."
+→ [
+     ["person:man", "wearing", "cloth:tuxedo"],
+     ["person:woman", "wearing", "cloth:wedding dress"]
+   ]
+
+Query: "남녀가 결혼식장에서 결혼식을 올리는 씬을 찾아줘."
+→ [
+     ["person:man", "wearing", "cloth:tuxedo"],
+     ["person:woman", "wearing", "cloth:wedding dress"],
+     ["object:wedding venue", "location of", None]
+   ]
+
+※ Do NOT generate:
+  ["person:man", "marrying", None]  ← Not visually observable
+  ["person:woman", "celebrating", None]  ← Too abstract
+
+
+9. Restrictions Summary
+- Only include triples that represent directly visible and spatial/physical information.
+- Use "super_type:type" format for all entities.
+- Use attribute relations for describing visual properties.
+- Avoid abstract, symbolic, emotional, or social-context predicates.
+- Never guess; use only what is likely visible in the scene.
+
+
+Query: $CONTENT

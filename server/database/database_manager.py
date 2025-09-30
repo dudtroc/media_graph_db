@@ -267,15 +267,17 @@ class SceneGraphDatabaseManager:
         finally:
             session.close()
     
-    def search_similar_nodes(self, query_embedding: List[float], node_type: str, top_k: int = 5, scene_id: int = None) -> List[Dict]:
+    def search_similar_nodes(self, query_embedding: Optional[List[float]] = None, node_type: str = None, top_k: int = 5, scene_id: int = None, tau: float = 0.0, specific_node_id: str = None) -> List[Dict]:
         """
         특정 타입의 노드 중에서 유사한 노드를 벡터 검색으로 찾기
         
         Args:
-            query_embedding: 쿼리 임베딩 벡터
+            query_embedding: 쿼리 임베딩 벡터 (None이면 specific_node_id만으로 검색)
             node_type: 노드 타입 ('object', 'event', 'spatial', 'temporal')
             top_k: 반환할 최대 결과 수
             scene_id: 특정 장면으로 제한 (None이면 모든 장면)
+            tau: 유사도 임계값
+            specific_node_id: 특정 노드 ID로 제한 (None이면 모든 노드)
             
         Returns:
             List[Dict]: 검색 결과
@@ -283,27 +285,54 @@ class SceneGraphDatabaseManager:
         session = self.get_session()
         try:
             if node_type == 'object':
-                # pgvector를 사용한 벡터 검색 (cosine similarity)
-                # 벡터를 문자열로 변환하여 직접 쿼리에 삽입
-                vector_str = '[' + ','.join(map(str, query_embedding)) + ']'
-                # scene_id 필터 조건 추가
-                scene_filter = "AND s.id = :scene_id" if scene_id is not None else ""
-                
-                results = session.execute(text(f"""
-                    SELECT o.id, o.object_id, o.super_type, o.type_of, o.label, o.attributes,
-                           s.id as scene_id, s.scene_number, v.id as video_id, v.drama_name, v.episode_number, v.video_unique_id,
-                           1 - (e.embedding <=> '{vector_str}'::vector) as similarity
-                    FROM objects o
-                    JOIN scenes s ON o.scene_id = s.id
-                    JOIN video v ON s.video_id = v.id
-                    JOIN embeddings e ON o.object_id = e.node_id AND e.node_type = 'object'
-                    WHERE 1=1 {scene_filter}
-                    ORDER BY e.embedding <=> '{vector_str}'::vector
-                    LIMIT :top_k
-                """), {
-                    'top_k': top_k,
-                    'scene_id': scene_id
-                }).fetchall()
+                # query_embedding이 None인 경우, specific_node_id만으로 검색
+                if query_embedding is None:
+                    # scene_id 필터 조건 추가
+                    scene_filter = "AND s.id = :scene_id" if scene_id is not None else ""
+                    # specific_node_id 필터 조건 추가
+                    node_filter = "AND o.object_id = :specific_node_id" if specific_node_id is not None else ""
+                    
+                    results = session.execute(text(f"""
+                        SELECT o.id, o.object_id, o.super_type, o.type_of, o.label, o.attributes,
+                               s.id as scene_id, s.scene_number, v.id as video_id, v.drama_name, v.episode_number, v.video_unique_id,
+                               1.0 as similarity
+                        FROM objects o
+                        JOIN scenes s ON o.scene_id = s.id
+                        JOIN video v ON s.video_id = v.id
+                        WHERE 1=1 {scene_filter} {node_filter}
+                        LIMIT :top_k
+                    """), {
+                        'top_k': top_k,
+                        'scene_id': scene_id,
+                        'specific_node_id': specific_node_id
+                    }).fetchall()
+                else:
+                    # pgvector를 사용한 벡터 검색 (cosine similarity)
+                    # 벡터를 문자열로 변환하여 직접 쿼리에 삽입
+                    vector_str = '[' + ','.join(map(str, query_embedding)) + ']'
+                    # scene_id 필터 조건 추가
+                    scene_filter = "AND s.id = :scene_id" if scene_id is not None else ""
+                    # specific_node_id 필터 조건 추가
+                    node_filter = "AND o.object_id = :specific_node_id" if specific_node_id is not None else ""
+                    
+                    results = session.execute(text(f"""
+                        SELECT o.id, o.object_id, o.super_type, o.type_of, o.label, o.attributes,
+                               s.id as scene_id, s.scene_number, v.id as video_id, v.drama_name, v.episode_number, v.video_unique_id,
+                               1 - (e.embedding <=> '{vector_str}'::vector) as similarity
+                        FROM objects o
+                        JOIN scenes s ON o.scene_id = s.id
+                        JOIN video v ON s.video_id = v.id
+                        JOIN embeddings e ON o.object_id = e.node_id AND e.node_type = 'object'
+                        WHERE 1=1 {scene_filter} {node_filter}
+                        AND 1 - (e.embedding <=> '{vector_str}'::vector) >= :tau
+                        ORDER BY e.embedding <=> '{vector_str}'::vector
+                        LIMIT :top_k
+                    """), {
+                        'top_k': top_k,
+                        'scene_id': scene_id,
+                        'specific_node_id': specific_node_id,
+                        'tau': tau
+                    }).fetchall()
                 
                 return [{
                     'id': row.id,
@@ -327,6 +356,8 @@ class SceneGraphDatabaseManager:
                 vector_str = '[' + ','.join(map(str, query_embedding)) + ']'
                 # scene_id 필터 조건 추가
                 scene_filter = "AND s.id = :scene_id" if scene_id is not None else ""
+                # specific_node_id 필터 조건 추가
+                node_filter = "AND e.event_id = :specific_node_id" if specific_node_id is not None else ""
                 
                 results = session.execute(text(f"""
                     SELECT e.id, e.event_id, e.subject_id, e.verb, e.object_id, e.attributes,
@@ -336,12 +367,15 @@ class SceneGraphDatabaseManager:
                     JOIN scenes s ON e.scene_id = s.id
                     JOIN video v ON s.video_id = v.id
                     JOIN embeddings emb ON e.event_id = emb.node_id AND emb.node_type = 'event'
-                    WHERE 1=1 {scene_filter}
+                    WHERE 1=1 {scene_filter} {node_filter}
+                    AND 1 - (emb.embedding <=> '{vector_str}'::vector) >= :tau
                     ORDER BY emb.embedding <=> '{vector_str}'::vector
                     LIMIT :top_k
                 """), {
                     'top_k': top_k,
-                    'scene_id': scene_id
+                    'scene_id': scene_id,
+                    'specific_node_id': specific_node_id,
+                    'tau': tau
                 }).fetchall()
                 
                 return [{
@@ -351,6 +385,47 @@ class SceneGraphDatabaseManager:
                     'verb': row.verb,
                     'object_id': row.object_id,
                     'attributes': row.attributes,
+                    'scene_id': row.scene_id,
+                    'scene_number': row.scene_number,
+                    'video_id': row.video_id,
+                    'drama_name': row.drama_name,
+                    'episode_number': row.episode_number,
+                    'video_unique_id': row.video_unique_id,
+                    'similarity': float(row.similarity)
+                } for row in results]
+                
+            elif node_type == 'spatial':
+                # pgvector를 사용한 벡터 검색 (cosine similarity)
+                vector_str = '[' + ','.join(map(str, query_embedding)) + ']'
+                scene_filter = "AND s.id = :scene_id" if scene_id is not None else ""
+                # specific_node_id 필터 조건 추가
+                node_filter = "AND sp.spatial_id = :specific_node_id" if specific_node_id is not None else ""
+                
+                results = session.execute(text(f"""
+                    SELECT sp.id, sp.spatial_id, sp.subject_id, sp.predicate, sp.object_id,
+                           s.id as scene_id, s.scene_number, v.id as video_id, v.drama_name, v.episode_number, v.video_unique_id,
+                           1 - (emb.embedding <=> '{vector_str}'::vector) as similarity
+                    FROM spatial sp
+                    JOIN scenes s ON sp.scene_id = s.id
+                    JOIN video v ON s.video_id = v.id
+                    JOIN embeddings emb ON sp.spatial_id = emb.node_id AND emb.node_type = 'spatial'
+                    WHERE 1=1 {scene_filter} {node_filter}
+                    AND 1 - (emb.embedding <=> '{vector_str}'::vector) >= :tau
+                    ORDER BY emb.embedding <=> '{vector_str}'::vector
+                    LIMIT :top_k
+                """), {
+                    'top_k': top_k,
+                    'scene_id': scene_id,
+                    'specific_node_id': specific_node_id,
+                    'tau': tau
+                }).fetchall()
+                
+                return [{
+                    'id': row.id,
+                    'spatial_id': row.spatial_id,
+                    'subject_id': row.subject_id,
+                    'predicate': row.predicate,
+                    'object_id': row.object_id,
                     'scene_id': row.scene_id,
                     'scene_number': row.scene_number,
                     'video_id': row.video_id,

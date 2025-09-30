@@ -751,7 +751,9 @@ async def vector_search(
             search_query.query_embedding,
             search_query.node_type,
             search_query.top_k,
-            search_query.scene_id
+            search_query.scene_id,
+            search_query.tau,
+            search_query.specific_node_id
         )
         return results
     except Exception as e:
